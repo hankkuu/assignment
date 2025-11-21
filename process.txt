@@ -1,0 +1,116 @@
+프로젝트 수행 절차 기록
+
+사용하는 AI
+- Claude Code v2.0.27
+- Sonnet 4.5
+- Claude Pro
+
+1. claude-cli 이용해서 과제 요구 사항 pdf 파일 분석해서 claude.md 파일과 project.md 파일 작성 요청
+
+2. claude.md 파일과 project.md 파일 기반으로 초기 구현 코드 작성
+- 산출물: README.md 파일 생성
+
+3. /init 명령어 수행으로 claude.md 파일 구현 코드 기반으로 수정 (영어기반)
+
+4. claude.md 파일 검증
+- 검증 방법: Chat GPT Agent 모드에서 pdf 파일기반 claude.md 파일 검증
+- 검증 결과: claude code 기반 생성이 더 풍부한 내용으로 생성, 해당 내용은 reject
+
+-- 여기까지 1시간 소요
+
+5. 패키지 및 구조적으로 수정 부분 직접 확인 (자동 생성 코드 검증)
+- 기존 경험 토대로 요구 사항 분석
+
+-- 내부적인 검토
+
+6. 모노레포 멀티모듈로 수집기와 API 서버를 분리할지 검토 진행
+
+7. 분리 결정 후 CLAUDE.md 파일 수정 하고 프로젝트 코드 수정 및 이동
+
+-- 여기까지 1시간 소요
+
+-- CLAUDE CODE 생성된 멀티 모듈 구조 검토
+
+8. Application - Infrastructure 를 분리할지 검토 진행
+- 단순히 분리가 아니라 더 세분화된 관심사로 분리할지 검토(+ Monitoring 모듈, External Client 등등)
+- DB, Cache, HTTP, Message 등 여러 Infra 가 쓰이면 Adapter 와 같은 형태로 분리하는 게 좋음
+
+현재 구조를 분석해보면 infrastructure로 분리할 수 있는 부분들이 있습니다:
+
+  현재 구조의 문제점
+
+  common 모듈에 섞여있는 것들:
+  - 도메인 모델 (BusinessPlace, Admin, Transaction)
+  - 영속성 계층 (JPA Repository)
+  - 인프라 관심사 (JPA 애노테이션)
+
+  Infrastructure 모듈 분리 옵션
+
+  제안할 수 있는 구조는 2가지입니다:
+
+  옵션 1: 실용적 분리 (추천)
+
+  tax/
+  ├── common/              # 도메인 인터페이스, 예외, DTO
+  ├── infrastructure/      # JPA 엔티티, 리포지토리 구현, DB 설정
+  ├── api-server/          # REST API
+  └── collector/           # 데이터 수집기
+
+  Infrastructure 모듈에 포함:
+  - JPA Entity 클래스 (BusinessPlace, Admin, Transaction 등)
+  - Repository 구현 (JPA Repository)
+  - 데이터베이스 설정
+  - ExcelParser (외부 파일 시스템 연동)
+
+  Common 모듈에 포함:
+  - 도메인 예외 (ErrorCode, BusinessException)
+  - Enum (CollectionStatus, TransactionType, AdminRole)
+  - DTO/응답 클래스
+
+  옵션 2: 완전한 클린 아키텍처
+
+  tax/
+  ├── domain/              # 순수 도메인 (인터페이스만)
+  ├── application/         # 비즈니스 로직 (서비스)
+  ├── infrastructure/      # 영속성, 외부 시스템
+  ├── api-server/          # REST API (어댑터)
+  └── collector/           # 수집기 (어댑터)
+
+  이 경우 도메인과 인프라를 완전히 분리하지만, 더 많은 리팩토링이 필요합니다.
+
+-- 실용적인 분리 후 2차 검토 (이제 다양한 외부 시스템 연동에 상대적으로 유연해짐)
+
+-- 여기까지 1시간
+
+9. 분리 된 모듈 기반으로 요구사항에 적합하게 적용되었는지 교차 해서 검토
+- project.md 파일을 재작성 및 수정하면서 요구사항 문서와 체크
+- CLAUDE.md 파일을 재작성 및 수정하면서 project.md 파일과 과제 PDF 를 교차 확인하면서 체크 및 검사
+
+-- 여기까지 1시간
+
+10. csv 파일을 excel 파일로 바꾸어서 처리하도록 parser 개선
+- csv 파일 parser 에서 xlsx 파일 parser 로 변경 (탭 구조 기반 분석)
+
+11. 리팩토링 시작
+- sonar lint 플러그인에서 발생되는 warning 제거
+- 코드가 변경될 때 마다 CLAUDE.md 파일 최신화 및 검증 수행
+
+-- 여기까지 1시간
+
+12. 테스트 코드 추가
+- edge case 에 대한 작성
+
+13. 최종 산출물 코드 검토
+
+-- 여기까지 2시간
+
+14. 최종 제출전 확인
+-- 코드 스타일
+-- 테스트 코드 검토
+-- 문서화
+
+-- 여기까지
+
+
+
+

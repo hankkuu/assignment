@@ -1,0 +1,18 @@
+2025-11-16 12:46:34.089270+09:00 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "BUSINESS_PLACE" not found (this database is empty); SQL statement:
+select bp1_0.business_number,bp1_0.collection_status,bp1_0.created_at,bp1_0.name,bp1_0.updated_at from business_place bp1_0 where bp1_0.collection_status=? [42104-232]
+2025-11-16 12:46:44.123103+09:00 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "BUSINESS_PLACE" not found (this database is empty); SQL statement:
+select bp1_0.business_number,bp1_0.collection_status,bp1_0.created_at,bp1_0.name,bp1_0.updated_at from business_place bp1_0 where bp1_0.collection_status=? [42104-232]
+2025-11-16 12:46:54.131574+09:00 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "BUSINESS_PLACE" not found (this database is empty); SQL statement:
+select bp1_0.business_number,bp1_0.collection_status,bp1_0.created_at,bp1_0.name,bp1_0.updated_at from business_place bp1_0 where bp1_0.collection_status=? [42104-232]
+2025-11-16 12:47:04.139185+09:00 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "BUSINESS_PLACE" not found (this database is empty); SQL statement:
+select bp1_0.business_number,bp1_0.collection_status,bp1_0.created_at,bp1_0.name,bp1_0.updated_at from business_place bp1_0 where bp1_0.collection_status=? [42104-232]
+2025-11-16 12:47:14.145632+09:00 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "BUSINESS_PLACE" not found (this database is empty); SQL statement:
+select bp1_0.business_number,bp1_0.collection_status,bp1_0.created_at,bp1_0.name,bp1_0.updated_at from business_place bp1_0 where bp1_0.collection_status=? [42104-232]
+2025-11-16 12:47:24.156667+09:00 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "BUSINESS_PLACE" not found (this database is empty); SQL statement:
+select bp1_0.business_number,bp1_0.collection_status,bp1_0.created_at,bp1_0.name,bp1_0.updated_at from business_place bp1_0 where bp1_0.collection_status=? [42104-232]

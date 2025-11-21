@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: tax-collector
+
+  datasource:
+    url: jdbc:h2:file:~/tax-data/taxdb;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: none  # API server가 스키마 생성
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.H2Dialect
+
+  task:
+    scheduling:
+      pool:
+        size: 5
+
+server:
+  port: 8081
+
+logging:
+  level:
+    com.kcd.tax.collector: DEBUG
+    com.kcd.tax.common: DEBUG
+    org.hibernate.SQL: DEBUG
+
+# 데이터 수집 설정
+collector:
+  data-file: sample.xlsx  # 수집할 엑셀 파일 경로
