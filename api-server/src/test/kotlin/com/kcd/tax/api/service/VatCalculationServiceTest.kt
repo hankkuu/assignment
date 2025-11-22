@@ -65,7 +65,10 @@ class VatCalculationServiceTest {
     fun `존재하지 않는 사업장의 부가세 계산 시 예외가 발생한다`() {
         // Given
         val businessNumber = "9999999999"
-        every { businessPlaceHelper.findByIdOrThrow(businessNumber) } throws NotFoundException::class.java.getDeclaredConstructor().newInstance()
+        every { businessPlaceHelper.findByIdOrThrow(businessNumber) } throws NotFoundException(
+            com.kcd.tax.common.exception.ErrorCode.BUSINESS_NOT_FOUND,
+            "사업장을 찾을 수 없습니다"
+        )
 
         // When & Then
         assertThrows<NotFoundException> {
@@ -80,9 +83,16 @@ class VatCalculationServiceTest {
         val businessPlace1 = BusinessPlace("1234567890", "테스트1")
         val businessPlace2 = BusinessPlace("0987654321", "테스트2")
 
-        every { businessPlaceHelper.findByIdOrThrow("1234567890") } returns businessPlace1
-        every { businessPlaceHelper.findByIdOrThrow("0987654321") } returns businessPlace2
-        every { transactionRepository.sumAmountByBusinessNumberAndType(any(), any()) } returns BigDecimal.ZERO
+        // N+1 Query 방지를 위한 bulk 쿼리 mock
+        every { businessPlaceHelper.findAllByIds(businessNumbers) } returns listOf(businessPlace1, businessPlace2)
+        every { transactionRepository.sumAmountByBusinessNumbersAndType(businessNumbers, TransactionType.SALES) } returns listOf(
+            arrayOf("1234567890", BigDecimal.ZERO),
+            arrayOf("0987654321", BigDecimal.ZERO)
+        )
+        every { transactionRepository.sumAmountByBusinessNumbersAndType(businessNumbers, TransactionType.PURCHASE) } returns listOf(
+            arrayOf("1234567890", BigDecimal.ZERO),
+            arrayOf("0987654321", BigDecimal.ZERO)
+        )
         every { vatCalculator.calculate(any(), any()) } returns 0L
 
         // When

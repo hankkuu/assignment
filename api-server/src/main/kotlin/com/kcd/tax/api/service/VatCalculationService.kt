@@ -41,7 +41,7 @@ class VatCalculationService(
     )
 
     /**
-     * 여러 사업장의 부가세 계산
+     * 여러 사업장의 부가세 계산 (최적화: N+1 Query 방지)
      *
      * @param businessNumbers 사업자번호 목록
      * @return 부가세 계산 결과 목록
@@ -49,8 +49,38 @@ class VatCalculationService(
     fun calculateVat(businessNumbers: List<String>): List<VatResult> {
         logger.info("부가세 계산 시작: ${businessNumbers.size}개 사업장")
 
-        return businessNumbers.map { businessNumber ->
-            calculateVatForBusinessPlace(businessNumber)
+        if (businessNumbers.isEmpty()) {
+            return emptyList()
+        }
+
+        // 1. 사업장 정보 조회 (1 Query)
+        val businessPlaces = businessPlaceHelper.findAllByIds(businessNumbers)
+            .associateBy { it.businessNumber }
+
+        // 2. 매출 합계 조회 (1 Query)
+        val salesMap = transactionRepository
+            .sumAmountByBusinessNumbersAndType(businessNumbers, TransactionType.SALES)
+            .associate { it[0] as String to it[1] as BigDecimal }
+
+        // 3. 매입 합계 조회 (1 Query)
+        val purchasesMap = transactionRepository
+            .sumAmountByBusinessNumbersAndType(businessNumbers, TransactionType.PURCHASE)
+            .associate { it[0] as String to it[1] as BigDecimal }
+
+        // 4. 부가세 계산 (메모리 연산)
+        return businessNumbers.mapNotNull { businessNumber ->
+            val businessPlace = businessPlaces[businessNumber] ?: return@mapNotNull null
+            val totalSales = salesMap[businessNumber] ?: BigDecimal.ZERO
+            val totalPurchases = purchasesMap[businessNumber] ?: BigDecimal.ZERO
+            val vatAmount = vatCalculator.calculate(totalSales, totalPurchases)
+
+            VatResult(
+                businessNumber = businessNumber,
+                businessName = businessPlace.name,
+                totalSales = totalSales,
+                totalPurchases = totalPurchases,
+                vatAmount = vatAmount
+            )
         }
     }
 

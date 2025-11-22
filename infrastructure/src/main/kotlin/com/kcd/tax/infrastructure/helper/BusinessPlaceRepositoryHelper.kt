@@ -58,6 +58,16 @@ class BusinessPlaceRepositoryHelper(
     }
 
     /**
+     * 여러 사업장 조회 (N+1 Query 방지)
+     *
+     * @param businessNumbers 사업자번호 목록
+     * @return 사업장 목록
+     */
+    fun findAllByIds(businessNumbers: List<String>): List<BusinessPlace> {
+        return businessPlaceRepository.findAllById(businessNumbers)
+    }
+
+    /**
      * 사업장 저장
      *
      * @param businessPlace 사업장
