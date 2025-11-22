@@ -8,7 +8,6 @@ import com.kcd.tax.common.exception.BadRequestException
 import com.kcd.tax.common.exception.ErrorCode
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.Page
-import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.Pageable
 import org.springframework.data.web.PageableDefault
 import org.springframework.http.ResponseEntity
@@ -62,33 +61,17 @@ class VatController(
         val adminId = AuthContext.getAdminId()
         val adminRole = AuthContext.getAdminRole()
 
-        val businessNumbers = when {
-            // 특정 사업장 조회
-            businessNumber != null -> {
-                // 권한 체크
-                vatCalculationService.checkPermission(businessNumber, adminId, adminRole)
-                listOf(businessNumber)
-            }
-            // 전체 조회 (권한별)
-            else -> {
-                vatCalculationService.getAuthorizedBusinessNumbers(adminId, adminRole)
-            }
-        }
+        // Service 레이어에서 권한 체크 + 페이징 + 부가세 계산
+        val resultPage = vatCalculationService.calculateVatWithPaging(
+            adminId = adminId,
+            role = adminRole,
+            businessNumber = businessNumber,
+            pageable = pageable
+        )
 
-        // Pagination 적용
-        val totalElements = businessNumbers.size
-        val start = (pageable.pageNumber * pageable.pageSize).coerceAtMost(totalElements)
-        val end = (start + pageable.pageSize).coerceAtMost(totalElements)
-        val pagedBusinessNumbers = if (start < totalElements) {
-            businessNumbers.subList(start, end)
-        } else {
-            emptyList()
-        }
+        // DTO 변환
+        val responsePage = resultPage.map { VatResponse.from(it) }
 
-        val results = vatCalculationService.calculateVat(pagedBusinessNumbers)
-        val responses = results.map { VatResponse.from(it) }
-        val page = PageImpl(responses, pageable, totalElements.toLong())
-
-        return ResponseEntity.ok(page)
+        return ResponseEntity.ok(responsePage)
     }
 }

@@ -11,7 +11,10 @@ import com.kcd.tax.infrastructure.repository.BusinessPlaceAdminRepository
 import com.kcd.tax.infrastructure.repository.TransactionRepository
 import com.kcd.tax.infrastructure.repository.TransactionSumResult
 import com.kcd.tax.infrastructure.util.VatCalculator
+import com.kcd.tax.api.util.PageableHelper
 import org.slf4j.LoggerFactory
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.math.BigDecimal
@@ -42,6 +45,56 @@ class VatCalculationService(
         val totalPurchases: BigDecimal,
         val vatAmount: Long
     )
+
+    /**
+     * 여러 사업장의 부가세 계산 with Pagination (권한 기반)
+     *
+     * 권한 필터링 후 페이징 처리하여 부가세를 계산합니다.
+     *
+     * @param adminId 관리자 ID
+     * @param role 관리자 역할
+     * @param businessNumber 특정 사업장 번호 (선택)
+     * @param pageable 페이징 정보
+     * @return 페이징된 부가세 계산 결과
+     */
+    fun calculateVatWithPaging(
+        adminId: Long,
+        role: AdminRole,
+        businessNumber: String?,
+        pageable: Pageable
+    ): Page<VatResult> {
+        logger.info("부가세 페이징 조회: adminId={}, role={}, businessNumber={}", adminId, role, businessNumber)
+
+        // 1. 권한 기반 사업장 목록 조회
+        val authorizedBusinessNumbers = when {
+            businessNumber != null -> {
+                // 특정 사업장 조회 시 권한 체크
+                checkPermission(businessNumber, adminId, role)
+                listOf(businessNumber)
+            }
+            else -> {
+                // 전체 조회 (권한별)
+                getAuthorizedBusinessNumbers(adminId, role)
+            }
+        }
+
+        // 2. 페이징 적용 (메모리 기반)
+        val pagedBusinessNumbers = PageableHelper.extractPagedItems(authorizedBusinessNumbers, pageable)
+
+        // 3. 부가세 계산 (페이징된 사업장만)
+        val results = if (pagedBusinessNumbers.isNotEmpty()) {
+            calculateVat(pagedBusinessNumbers)
+        } else {
+            emptyList()
+        }
+
+        // 4. Page 객체 생성 (전체 개수는 authorizedBusinessNumbers 크기)
+        return org.springframework.data.domain.PageImpl(
+            results,
+            pageable,
+            authorizedBusinessNumbers.size.toLong()
+        )
+    }
 
     /**
      * 여러 사업장의 부가세 계산 (최적화: N+1 Query 방지)
