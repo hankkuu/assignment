@@ -4,6 +4,8 @@ import com.kcd.tax.api.controller.dto.response.VatResponse
 import com.kcd.tax.api.security.AuthContext
 import com.kcd.tax.api.security.annotation.RequireAuth
 import com.kcd.tax.api.service.VatCalculationService
+import com.kcd.tax.common.exception.BadRequestException
+import com.kcd.tax.common.exception.ErrorCode
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageImpl
@@ -22,6 +24,9 @@ import org.springframework.web.bind.annotation.RestController
  *   - ADMIN: 전체 사업장 조회 가능
  *   - MANAGER: 권한이 부여된 사업장만 조회 가능
  *   - businessNumber 파라미터로 특정 사업장 조회 가능
+ *
+ * 로깅은 ControllerLoggingAspect에서 AOP로 자동 처리
+ * (단, 비즈니스 validation 경고는 개별 처리)
  */
 @RestController
 @RequestMapping("/api/v1/vat")
@@ -29,7 +34,12 @@ import org.springframework.web.bind.annotation.RestController
 class VatController(
     private val vatCalculationService: VatCalculationService
 ) {
+    // Validation 경고용 logger (일반 API 로깅은 AOP 처리)
     private val logger = LoggerFactory.getLogger(javaClass)
+
+    companion object {
+        private const val MAX_PAGE_SIZE = 100
+    }
 
     /**
      * 부가세 조회 (Pagination 지원)
@@ -43,10 +53,14 @@ class VatController(
         @RequestParam(required = false) businessNumber: String?,
         @PageableDefault(size = 20) pageable: Pageable
     ): ResponseEntity<Page<VatResponse>> {
+        // Page size 제한 (DoS 공격 방지)
+        if (pageable.pageSize > MAX_PAGE_SIZE) {
+            logger.warn("페이지 크기 초과: size={}, max={}", pageable.pageSize, MAX_PAGE_SIZE)
+            throw BadRequestException(ErrorCode.INVALID_INPUT, "페이지 크기는 최대 ${MAX_PAGE_SIZE}개까지 허용됩니다")
+        }
+
         val adminId = AuthContext.getAdminId()
         val adminRole = AuthContext.getAdminRole()
-
-        logger.info("부가세 조회 API 호출: adminId=$adminId, role=$adminRole, businessNumber=$businessNumber, page=${pageable.pageNumber}, size=${pageable.pageSize}")
 
         val businessNumbers = when {
             // 특정 사업장 조회
@@ -74,8 +88,6 @@ class VatController(
         val results = vatCalculationService.calculateVat(pagedBusinessNumbers)
         val responses = results.map { VatResponse.from(it) }
         val page = PageImpl(responses, pageable, totalElements.toLong())
-
-        logger.info("부가세 조회 완료: 전체 ${totalElements}개 중 ${responses.size}개 조회 (page ${pageable.pageNumber})")
 
         return ResponseEntity.ok(page)
     }

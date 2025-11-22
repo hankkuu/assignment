@@ -5,7 +5,6 @@ import com.kcd.tax.api.controller.dto.response.CollectionStatusResponse
 import com.kcd.tax.api.security.annotation.RequireAuth
 import com.kcd.tax.api.service.CollectionService
 import jakarta.validation.Valid
-import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
@@ -14,6 +13,8 @@ import org.springframework.web.bind.annotation.*
  *
  * - POST /api/v1/collections: 수집 요청
  * - GET /api/v1/collections/{businessNumber}/status: 수집 상태 조회
+ *
+ * 로깅은 ControllerLoggingAspect에서 AOP로 자동 처리
  */
 @RestController
 @RequestMapping("/api/v1/collections")
@@ -21,8 +22,6 @@ import org.springframework.web.bind.annotation.*
 class CollectionController(
     private val collectionService: CollectionService
 ) {
-    private val logger = LoggerFactory.getLogger(javaClass)
-
     /**
      * 수집 요청
      *
@@ -33,8 +32,6 @@ class CollectionController(
     fun requestCollection(
         @Valid @RequestBody request: CollectionRequest
     ): ResponseEntity<CollectionStatusResponse> {
-        logger.info("수집 요청 API 호출: businessNumber=${request.businessNumber}")
-
         val status = collectionService.requestCollection(request.businessNumber)
 
         val response = CollectionStatusResponse.of(
@@ -56,8 +53,6 @@ class CollectionController(
     fun getCollectionStatus(
         @PathVariable businessNumber: String
     ): ResponseEntity<CollectionStatusResponse> {
-        logger.info("수집 상태 조회 API 호출: businessNumber=$businessNumber")
-
         val status = collectionService.getCollectionStatus(businessNumber)
 
         val response = CollectionStatusResponse.of(
