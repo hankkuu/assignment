@@ -79,8 +79,17 @@ class VatCalculationServiceEdgeCaseTest {
         val businessNumbers = listOf("1234567890", "9999999999", "0987654321")
         val businessPlace1 = BusinessPlace("1234567890", "테스트1")
 
+        // 첫 번째 사업장은 정상 처리
         every { businessPlaceHelper.findByIdOrThrow("1234567890") } returns businessPlace1
-        every { businessPlaceHelper.findByIdOrThrow("9999999999") } throws NotFoundException::class.java.getDeclaredConstructor().newInstance()
+        every { transactionRepository.sumAmountByBusinessNumberAndType("1234567890", TransactionType.SALES) } returns BigDecimal.ZERO
+        every { transactionRepository.sumAmountByBusinessNumberAndType("1234567890", TransactionType.PURCHASE) } returns BigDecimal.ZERO
+        every { vatCalculator.calculate(any(), any()) } returns 0L
+
+        // 두 번째 사업장은 예외 발생
+        every { businessPlaceHelper.findByIdOrThrow("9999999999") } throws NotFoundException(
+            com.kcd.tax.common.exception.ErrorCode.BUSINESS_NOT_FOUND,
+            "사업장을 찾을 수 없습니다"
+        )
 
         // When & Then
         assertThrows<NotFoundException> {

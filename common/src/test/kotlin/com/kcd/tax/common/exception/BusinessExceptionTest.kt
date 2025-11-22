@@ -23,27 +23,31 @@ class BusinessExceptionTest {
     }
 
     @Test
-    fun `NotFoundException은 BusinessException이다`() {
+    fun `NotFoundException의 타입을 확인할 수 있다`() {
         val exception = NotFoundException(ErrorCode.BUSINESS_NOT_FOUND)
-        assertTrue(exception is BusinessException)
+        assertEquals(NotFoundException::class, exception::class)
+        assertEquals(ErrorCode.BUSINESS_NOT_FOUND, exception.errorCode)
     }
 
     @Test
-    fun `ConflictException은 BusinessException이다`() {
+    fun `ConflictException의 타입을 확인할 수 있다`() {
         val exception = ConflictException(ErrorCode.COLLECTION_ALREADY_IN_PROGRESS)
-        assertTrue(exception is BusinessException)
+        assertEquals(ConflictException::class, exception::class)
+        assertEquals(ErrorCode.COLLECTION_ALREADY_IN_PROGRESS, exception.errorCode)
     }
 
     @Test
-    fun `ForbiddenException은 BusinessException이다`() {
+    fun `ForbiddenException의 타입을 확인할 수 있다`() {
         val exception = ForbiddenException("권한이 없습니다")
-        assertTrue(exception is BusinessException)
+        assertEquals(ForbiddenException::class, exception::class)
+        assertEquals("권한이 없습니다", exception.message)
     }
 
     @Test
-    fun `BadRequestException은 BusinessException이다`() {
+    fun `BadRequestException의 타입을 확인할 수 있다`() {
         val exception = BadRequestException(ErrorCode.INVALID_INPUT)
-        assertTrue(exception is BusinessException)
+        assertEquals(BadRequestException::class, exception::class)
+        assertEquals(ErrorCode.INVALID_INPUT, exception.errorCode)
     }
 
     @Test

@@ -62,7 +62,10 @@ class CollectorServiceTest {
     fun `존재하지 않는 사업장 수집 시 예외가 발생한다`() {
         // Given
         val businessNumber = "9999999999"
-        every { businessPlaceHelper.findByIdOrThrow(businessNumber) } throws NotFoundException::class.java.getDeclaredConstructor().newInstance()
+        every { businessPlaceHelper.findByIdOrThrow(businessNumber) } throws NotFoundException(
+            com.kcd.tax.common.exception.ErrorCode.BUSINESS_NOT_FOUND,
+            "사업장을 찾을 수 없습니다"
+        )
 
         // When & Then
         assertThrows<NotFoundException> {

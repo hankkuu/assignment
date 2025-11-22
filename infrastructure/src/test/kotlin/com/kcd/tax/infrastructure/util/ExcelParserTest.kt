@@ -177,6 +177,7 @@ class ExcelParserTest {
         // Given
         val businessNumber = "1234567890"
         val excelFile = createExcelFileWithoutDates(tempDir)
+        val today = LocalDate.now()
 
         // When
         val transactions = excelParser.parseExcelFile(excelFile.absolutePath, businessNumber)
@@ -184,7 +185,7 @@ class ExcelParserTest {
         // Then
         assertTrue(transactions.isNotEmpty())
         // 날짜가 없으면 LocalDate.now()로 설정됨
-        assertTrue(transactions.all { it.transactionDate != null })
+        assertTrue(transactions.all { it.transactionDate == today })
     }
 
     @Test
