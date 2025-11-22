@@ -5,6 +5,10 @@ import com.kcd.tax.api.security.AuthContext
 import com.kcd.tax.api.security.annotation.RequireAuth
 import com.kcd.tax.api.service.VatCalculationService
 import org.slf4j.LoggerFactory
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.PageImpl
+import org.springframework.data.domain.Pageable
+import org.springframework.data.web.PageableDefault
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping
@@ -28,19 +32,21 @@ class VatController(
     private val logger = LoggerFactory.getLogger(javaClass)
 
     /**
-     * 부가세 조회
+     * 부가세 조회 (Pagination 지원)
      *
      * @param businessNumber 사업자번호 (선택, 없으면 권한에 따라 전체 또는 할당된 사업장)
-     * @return 부가세 계산 결과 목록
+     * @param pageable 페이지 정보 (기본값: page=0, size=20)
+     * @return 부가세 계산 결과 페이지
      */
     @GetMapping
     fun getVat(
-        @RequestParam(required = false) businessNumber: String?
-    ): ResponseEntity<List<VatResponse>> {
+        @RequestParam(required = false) businessNumber: String?,
+        @PageableDefault(size = 20) pageable: Pageable
+    ): ResponseEntity<Page<VatResponse>> {
         val adminId = AuthContext.getAdminId()
         val adminRole = AuthContext.getAdminRole()
 
-        logger.info("부가세 조회 API 호출: adminId=$adminId, role=$adminRole, businessNumber=$businessNumber")
+        logger.info("부가세 조회 API 호출: adminId=$adminId, role=$adminRole, businessNumber=$businessNumber, page=${pageable.pageNumber}, size=${pageable.pageSize}")
 
         val businessNumbers = when {
             // 특정 사업장 조회
@@ -55,11 +61,22 @@ class VatController(
             }
         }
 
-        val results = vatCalculationService.calculateVat(businessNumbers)
+        // Pagination 적용
+        val totalElements = businessNumbers.size
+        val start = (pageable.pageNumber * pageable.pageSize).coerceAtMost(totalElements)
+        val end = (start + pageable.pageSize).coerceAtMost(totalElements)
+        val pagedBusinessNumbers = if (start < totalElements) {
+            businessNumbers.subList(start, end)
+        } else {
+            emptyList()
+        }
+
+        val results = vatCalculationService.calculateVat(pagedBusinessNumbers)
         val responses = results.map { VatResponse.from(it) }
+        val page = PageImpl(responses, pageable, totalElements.toLong())
 
-        logger.info("부가세 조회 완료: ${responses.size}개 사업장")
+        logger.info("부가세 조회 완료: 전체 ${totalElements}개 중 ${responses.size}개 조회 (page ${pageable.pageNumber})")
 
-        return ResponseEntity.ok(responses)
+        return ResponseEntity.ok(page)
     }
 }

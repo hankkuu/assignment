@@ -47,10 +47,10 @@ class VatControllerTest {
                 .header("X-Admin-Role", "ADMIN")
         )
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$[0].businessNumber").value("1234567890"))
-            .andExpect(jsonPath("$[0].vatAmount").value(454550))
-            .andExpect(jsonPath("$[1].businessNumber").value("0987654321"))
-            .andExpect(jsonPath("$[1].vatAmount").value(909090))
+            .andExpect(jsonPath("$.content[0].businessNumber").value("1234567890"))
+            .andExpect(jsonPath("$.content[0].vatAmount").value(454550))
+            .andExpect(jsonPath("$.content[1].businessNumber").value("0987654321"))
+            .andExpect(jsonPath("$.content[1].vatAmount").value(909090))
 
         verify { vatCalculationService.getAuthorizedBusinessNumbers(adminId, AdminRole.ADMIN) }
         verify { vatCalculationService.calculateVat(authorizedBusinessNumbers) }
@@ -76,8 +76,8 @@ class VatControllerTest {
                 .header("X-Admin-Role", "ADMIN")
         )
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$[0].businessNumber").value(businessNumber))
-            .andExpect(jsonPath("$[0].vatAmount").value(454550))
+            .andExpect(jsonPath("$.content[0].businessNumber").value(businessNumber))
+            .andExpect(jsonPath("$.content[0].vatAmount").value(454550))
 
         verify { vatCalculationService.checkPermission(businessNumber, adminId, AdminRole.ADMIN) }
         verify { vatCalculationService.calculateVat(listOf(businessNumber)) }
@@ -102,8 +102,8 @@ class VatControllerTest {
                 .header("X-Admin-Role", "MANAGER")
         )
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$[0].businessNumber").value("1234567890"))
-            .andExpect(jsonPath("$[0].vatAmount").value(454550))
+            .andExpect(jsonPath("$.content[0].businessNumber").value("1234567890"))
+            .andExpect(jsonPath("$.content[0].vatAmount").value(454550))
 
         verify { vatCalculationService.getAuthorizedBusinessNumbers(adminId, AdminRole.MANAGER) }
         verify { vatCalculationService.calculateVat(authorizedBusinessNumbers) }
@@ -222,8 +222,8 @@ class VatControllerTest {
                 .header("X-Admin-Role", "MANAGER")
         )
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$").isArray)
-            .andExpect(jsonPath("$").isEmpty)
+            .andExpect(jsonPath("$.content").isArray)
+            .andExpect(jsonPath("$.content").isEmpty)
     }
 
     @Test
@@ -246,7 +246,7 @@ class VatControllerTest {
                 .header("X-Admin-Role", "ADMIN")
         )
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$[0].vatAmount").value(-90910))
+            .andExpect(jsonPath("$.content[0].vatAmount").value(-90910))
     }
 
     @Test
@@ -269,7 +269,7 @@ class VatControllerTest {
                 .header("X-Admin-Role", "ADMIN")
         )
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$[0].vatAmount").value(0))
+            .andExpect(jsonPath("$.content[0].vatAmount").value(0))
     }
 
     @Test
@@ -297,10 +297,10 @@ class VatControllerTest {
                 .header("X-Admin-Role", "ADMIN")
         )
             .andExpect(status().isOk)
-            .andExpect(jsonPath("$.length()").value(3))
-            .andExpect(jsonPath("$[0].businessNumber").value("1111111111"))
-            .andExpect(jsonPath("$[1].businessNumber").value("2222222222"))
-            .andExpect(jsonPath("$[2].businessNumber").value("3333333333"))
+            .andExpect(jsonPath("$.content.length()").value(3))
+            .andExpect(jsonPath("$.content[0].businessNumber").value("1111111111"))
+            .andExpect(jsonPath("$.content[1].businessNumber").value("2222222222"))
+            .andExpect(jsonPath("$.content[2].businessNumber").value("3333333333"))
     }
 
     @Test
