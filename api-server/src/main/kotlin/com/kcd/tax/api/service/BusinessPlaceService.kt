@@ -10,6 +10,7 @@ import com.kcd.tax.infrastructure.domain.BusinessPlaceAdmin
 import com.kcd.tax.infrastructure.helper.BusinessPlaceRepositoryHelper
 import com.kcd.tax.infrastructure.repository.AdminRepository
 import com.kcd.tax.infrastructure.repository.BusinessPlaceAdminRepository
+import com.kcd.tax.infrastructure.repository.BusinessPlaceAdminDetail
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -149,7 +150,7 @@ class BusinessPlaceService(
     }
 
     /**
-     * 사업장의 관리자 권한 목록 조회
+     * 사업장의 관리자 권한 목록 조회 (N+1 Query 방지)
      *
      * @param businessNumber 사업자번호
      * @return 권한 목록
@@ -160,12 +161,18 @@ class BusinessPlaceService(
         // 사업장 존재 확인
         businessPlaceHelper.findByIdOrThrow(businessNumber)
 
-        val permissions = businessPlaceAdminRepository.findByBusinessNumber(businessNumber)
+        // JOIN 쿼리로 한 번에 조회 (N+1 Query 방지)
+        val details = businessPlaceAdminRepository.findDetailsByBusinessNumber(businessNumber)
 
-        return permissions.mapNotNull { permission ->
-            adminRepository.findById(permission.adminId).map { admin ->
-                toPermissionInfo(permission, admin)
-            }.orElse(null)
+        return details.map { detail ->
+            PermissionInfo(
+                id = detail.permissionId,
+                businessNumber = detail.businessNumber,
+                adminId = detail.adminId,
+                adminUsername = detail.adminName,
+                adminRole = detail.adminRole,
+                grantedAt = detail.grantedAt
+            )
         }
     }
 
@@ -258,7 +265,7 @@ class BusinessPlaceService(
         return PermissionInfo(
             id = permission.id,
             businessNumber = permission.businessNumber,
-            adminId = admin.id!!,
+            adminId = requireNotNull(admin.id) { "Admin ID는 필수입니다" },
             adminUsername = admin.username,
             adminRole = admin.role.name,
             grantedAt = permission.grantedAt

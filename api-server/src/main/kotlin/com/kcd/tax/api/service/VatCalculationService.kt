@@ -3,10 +3,13 @@ package com.kcd.tax.api.service
 import com.kcd.tax.common.constants.ErrorMessages
 import com.kcd.tax.common.enums.AdminRole
 import com.kcd.tax.common.enums.TransactionType
+import com.kcd.tax.common.exception.ErrorCode
 import com.kcd.tax.common.exception.ForbiddenException
+import com.kcd.tax.common.exception.NotFoundException
 import com.kcd.tax.infrastructure.helper.BusinessPlaceRepositoryHelper
 import com.kcd.tax.infrastructure.repository.BusinessPlaceAdminRepository
 import com.kcd.tax.infrastructure.repository.TransactionRepository
+import com.kcd.tax.infrastructure.repository.TransactionSumResult
 import com.kcd.tax.infrastructure.util.VatCalculator
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -57,19 +60,29 @@ class VatCalculationService(
         val businessPlaces = businessPlaceHelper.findAllByIds(businessNumbers)
             .associateBy { it.businessNumber }
 
-        // 2. 매출 합계 조회 (1 Query)
+        // 1-1. 존재하지 않는 사업장 확인
+        val missingBusinessNumbers = businessNumbers.filter { it !in businessPlaces.keys }
+        if (missingBusinessNumbers.isNotEmpty()) {
+            throw NotFoundException(
+                ErrorCode.BUSINESS_NOT_FOUND,
+                "사업장을 찾을 수 없습니다: ${missingBusinessNumbers.first()}"
+            )
+        }
+
+        // 2. 매출 합계 조회 (1 Query) - Type-safe DTO
         val salesMap = transactionRepository
             .sumAmountByBusinessNumbersAndType(businessNumbers, TransactionType.SALES)
-            .associate { it[0] as String to it[1] as BigDecimal }
+            .associate { it.businessNumber to it.totalAmount }
 
-        // 3. 매입 합계 조회 (1 Query)
+        // 3. 매입 합계 조회 (1 Query) - Type-safe DTO
         val purchasesMap = transactionRepository
             .sumAmountByBusinessNumbersAndType(businessNumbers, TransactionType.PURCHASE)
-            .associate { it[0] as String to it[1] as BigDecimal }
+            .associate { it.businessNumber to it.totalAmount }
 
         // 4. 부가세 계산 (메모리 연산)
-        return businessNumbers.mapNotNull { businessNumber ->
-            val businessPlace = businessPlaces[businessNumber] ?: return@mapNotNull null
+        return businessNumbers.map { businessNumber ->
+            val businessPlace = businessPlaces[businessNumber]
+                ?: error("사업장을 찾을 수 없습니다: $businessNumber") // 위에서 검증했지만 안전성을 위해 명시적 처리
             val totalSales = salesMap[businessNumber] ?: BigDecimal.ZERO
             val totalPurchases = purchasesMap[businessNumber] ?: BigDecimal.ZERO
             val vatAmount = vatCalculator.calculate(totalSales, totalPurchases)

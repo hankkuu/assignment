@@ -1,6 +1,8 @@
 package com.kcd.tax.infrastructure.util
 
 import com.kcd.tax.common.constants.CollectionConstants
+import com.kcd.tax.common.exception.BadRequestException
+import com.kcd.tax.common.exception.ErrorCode
 import com.kcd.tax.infrastructure.domain.Transaction
 import com.kcd.tax.common.enums.TransactionType
 import org.apache.poi.ss.usermodel.Sheet
@@ -9,6 +11,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import java.io.File
 import java.math.BigDecimal
+import java.nio.file.Paths
 import java.time.LocalDate
 import kotlin.random.Random
 
@@ -35,7 +38,7 @@ class ExcelParser {
      * @return 생성된 거래 내역 리스트
      */
     fun parseTransactions(businessNumber: String): List<Transaction> {
-        logger.info("샘플 거래 데이터 생성 시작: $businessNumber")
+        logger.info("샘플 거래 데이터 생성 시작: {}", businessNumber)
         return generateSampleData(businessNumber)
     }
 
@@ -74,7 +77,7 @@ class ExcelParser {
             )
         }
 
-        logger.info("샘플 데이터 생성 완료: 총 ${transactions.size}건 (매출 ${SAMPLE_SALES_COUNT}건, 매입 ${SAMPLE_PURCHASE_COUNT}건)")
+        logger.info("샘플 데이터 생성 완료: 총 {}건 (매출 {}건, 매입 {}건)", transactions.size, SAMPLE_SALES_COUNT, SAMPLE_PURCHASE_COUNT)
         return transactions
     }
 
@@ -84,6 +87,7 @@ class ExcelParser {
      * @param filePath 엑셀 파일 경로
      * @param businessNumber 사업자번호
      * @return 파싱된 거래 내역 리스트
+     * @throws InvalidInputException 파일 경로가 유효하지 않은 경우
      *
      * 엑셀 파일 구조:
      * - 시트: "매출", "매입"
@@ -92,13 +96,16 @@ class ExcelParser {
      * - 거래처명은 자동 생성됨 (고객1, 공급사1 등)
      */
     fun parseExcelFile(filePath: String, businessNumber: String): List<Transaction> {
-        logger.info("엑셀 파일 파싱 시작: $filePath")
+        logger.info("엑셀 파일 파싱 시작: {}", filePath)
+
+        // Path Traversal 공격 방지
+        validateFilePath(filePath)
 
         val transactions = mutableListOf<Transaction>()
         val file = File(filePath)
 
         if (!file.exists()) {
-            logger.warn("엑셀 파일을 찾을 수 없습니다: $filePath")
+            logger.warn("엑셀 파일을 찾을 수 없습니다: {}", filePath)
             return emptyList()
         }
 
@@ -181,5 +188,43 @@ class ExcelParser {
 
         logger.info("${type.name} 시트 파싱 완료: ${transactions.size}건")
         return transactions
+    }
+
+    /**
+     * 파일 경로 유효성 검증 (Path Traversal 공격 방지)
+     *
+     * @param filePath 검증할 파일 경로
+     * @throws BadRequestException 경로에 위험한 문자가 포함된 경우
+     */
+    private fun validateFilePath(filePath: String) {
+        // Null 또는 빈 문자열 체크
+        if (filePath.isBlank()) {
+            throw BadRequestException(ErrorCode.INVALID_INPUT, "파일 경로가 비어있습니다")
+        }
+
+        // 경로 순회 패턴 체크 ("..", "./", ".\\")
+        val dangerousPatterns = listOf("..", "./", ".\\")
+        if (dangerousPatterns.any { filePath.contains(it) }) {
+            logger.warn("경로 순회 공격 시도 감지: {}", filePath)
+            throw BadRequestException(ErrorCode.INVALID_INPUT, "유효하지 않은 파일 경로입니다")
+        }
+
+        // 절대 경로로 변환하여 정규화
+        val file = File(filePath)
+        val canonicalPath = try {
+            file.canonicalPath
+        } catch (e: Exception) {
+            logger.warn("파일 경로 정규화 실패: {}", filePath, e)
+            throw BadRequestException(ErrorCode.INVALID_INPUT, "유효하지 않은 파일 경로입니다")
+        }
+
+        // 파일 확장자 체크 (.xlsx, .xls만 허용)
+        val allowedExtensions = listOf(".xlsx", ".xls")
+        if (!allowedExtensions.any { canonicalPath.lowercase().endsWith(it) }) {
+            logger.warn("허용되지 않은 파일 확장자: {}", canonicalPath)
+            throw BadRequestException(ErrorCode.INVALID_INPUT, "엑셀 파일만 허용됩니다 (.xlsx, .xls)")
+        }
+
+        logger.debug("파일 경로 검증 통과: {}", canonicalPath)
     }
 }

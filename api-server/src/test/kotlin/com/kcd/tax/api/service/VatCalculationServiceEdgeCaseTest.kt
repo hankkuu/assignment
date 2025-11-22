@@ -8,6 +8,7 @@ import com.kcd.tax.infrastructure.domain.BusinessPlace
 import com.kcd.tax.infrastructure.helper.BusinessPlaceRepositoryHelper
 import com.kcd.tax.infrastructure.repository.BusinessPlaceAdminRepository
 import com.kcd.tax.infrastructure.repository.TransactionRepository
+import com.kcd.tax.infrastructure.repository.TransactionSumResult
 import com.kcd.tax.infrastructure.util.VatCalculator
 import io.mockk.every
 import io.mockk.mockk
@@ -79,26 +80,22 @@ class VatCalculationServiceEdgeCaseTest {
         val businessNumbers = listOf("1234567890", "9999999999", "0987654321")
         val businessPlace1 = BusinessPlace("1234567890", "테스트1")
 
-        // 첫 번째 사업장은 정상 처리
-        every { businessPlaceHelper.findByIdOrThrow("1234567890") } returns businessPlace1
-        every { transactionRepository.sumAmountByBusinessNumberAndType("1234567890", TransactionType.SALES) } returns BigDecimal.ZERO
-        every { transactionRepository.sumAmountByBusinessNumberAndType("1234567890", TransactionType.PURCHASE) } returns BigDecimal.ZERO
-        every { vatCalculator.calculate(any(), any()) } returns 0L
-
-        // 두 번째 사업장은 예외 발생
-        every { businessPlaceHelper.findByIdOrThrow("9999999999") } throws NotFoundException(
-            com.kcd.tax.common.exception.ErrorCode.BUSINESS_NOT_FOUND,
-            "사업장을 찾을 수 없습니다"
+        // Bulk query에서 하나가 없는 경우 - 2개만 반환
+        every { businessPlaceHelper.findAllByIds(businessNumbers) } returns listOf(
+            businessPlace1,
+            BusinessPlace("0987654321", "테스트3")
         )
+
+        every { transactionRepository.sumAmountByBusinessNumbersAndType(businessNumbers, TransactionType.SALES) } returns emptyList()
+        every { transactionRepository.sumAmountByBusinessNumbersAndType(businessNumbers, TransactionType.PURCHASE) } returns emptyList()
 
         // When & Then
         assertThrows<NotFoundException> {
             service.calculateVat(businessNumbers)
         }
 
-        // 첫 번째는 조회되었지만 두 번째에서 실패
-        verify { businessPlaceHelper.findByIdOrThrow("1234567890") }
-        verify { businessPlaceHelper.findByIdOrThrow("9999999999") }
+        // Bulk query 호출 확인
+        verify { businessPlaceHelper.findAllByIds(businessNumbers) }
     }
 
     @Test
@@ -224,19 +221,22 @@ class VatCalculationServiceEdgeCaseTest {
     fun `매우 많은 사업장 목록으로 부가세 계산`() {
         // Given
         val businessNumbers = (1..100).map { "123456789$it" }.take(10) // 10개만 테스트
+        val businessPlaces = businessNumbers.map { BusinessPlace(it, "테스트$it") }
 
-        businessNumbers.forEach { businessNumber ->
-            val businessPlace = BusinessPlace(businessNumber, "테스트$businessNumber")
-            every { businessPlaceHelper.findByIdOrThrow(businessNumber) } returns businessPlace
-            every { transactionRepository.sumAmountByBusinessNumberAndType(businessNumber, any()) } returns BigDecimal.ZERO
-            every { vatCalculator.calculate(any(), any()) } returns 0L
-        }
+        // Bulk query mocking
+        every { businessPlaceHelper.findAllByIds(businessNumbers) } returns businessPlaces
+        every { transactionRepository.sumAmountByBusinessNumbersAndType(businessNumbers, TransactionType.SALES) } returns emptyList()
+        every { transactionRepository.sumAmountByBusinessNumbersAndType(businessNumbers, TransactionType.PURCHASE) } returns emptyList()
+        every { vatCalculator.calculate(any(), any()) } returns 0L
 
         // When
         val results = service.calculateVat(businessNumbers)
 
         // Then
         assertEquals(10, results.size)
+        verify(exactly = 1) { businessPlaceHelper.findAllByIds(businessNumbers) }
+        verify(exactly = 1) { transactionRepository.sumAmountByBusinessNumbersAndType(businessNumbers, TransactionType.SALES) }
+        verify(exactly = 1) { transactionRepository.sumAmountByBusinessNumbersAndType(businessNumbers, TransactionType.PURCHASE) }
     }
 
     @Test

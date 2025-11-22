@@ -8,6 +8,14 @@ import org.springframework.data.repository.query.Param
 import org.springframework.stereotype.Repository
 import java.math.BigDecimal
 
+/**
+ * 거래 금액 합계 조회 결과 DTO (Type-safe query result)
+ */
+data class TransactionSumResult(
+    val businessNumber: String,
+    val totalAmount: BigDecimal
+)
+
 @Repository
 interface TransactionRepository : JpaRepository<Transaction, Long> {
 
@@ -44,12 +52,15 @@ interface TransactionRepository : JpaRepository<Transaction, Long> {
     fun deleteByBusinessNumber(businessNumber: String): Int
 
     /**
-     * 여러 사업장의 타입별 거래 금액 합계 조회 (N+1 Query 방지)
+     * 여러 사업장의 타입별 거래 금액 합계 조회 (N+1 Query 방지, Type-safe)
      *
-     * @return Map<사업자번호, 합계금액>
+     * @return List<TransactionSumResult> - 사업자번호와 합계금액의 타입 안전한 목록
      */
     @Query("""
-        SELECT t.businessNumber, COALESCE(SUM(t.amount), 0)
+        SELECT new com.kcd.tax.infrastructure.repository.TransactionSumResult(
+            t.businessNumber,
+            COALESCE(SUM(t.amount), 0)
+        )
         FROM Transaction t
         WHERE t.businessNumber IN :businessNumbers
         AND t.type = :type
@@ -58,5 +69,5 @@ interface TransactionRepository : JpaRepository<Transaction, Long> {
     fun sumAmountByBusinessNumbersAndType(
         @Param("businessNumbers") businessNumbers: List<String>,
         @Param("type") type: TransactionType
-    ): List<Array<Any>>
+    ): List<TransactionSumResult>
 }
