@@ -45,12 +45,23 @@ class CollectionService(
                 )
             }
 
-        // 2. 이미 수집 중인지 확인
-        if (businessPlace.collectionStatus == CollectionStatus.COLLECTING) {
-            throw ConflictException(
-                ErrorCode.COLLECTION_ALREADY_IN_PROGRESS,
-                "이미 수집이 진행 중입니다: $businessNumber"
-            )
+        // 2. 수집 상태 확인
+        when (businessPlace.collectionStatus) {
+            CollectionStatus.COLLECTING -> {
+                throw ConflictException(
+                    ErrorCode.COLLECTION_ALREADY_IN_PROGRESS,
+                    "이미 수집이 진행 중입니다: $businessNumber"
+                )
+            }
+            CollectionStatus.COLLECTED -> {
+                throw ConflictException(
+                    ErrorCode.COLLECTION_ALREADY_IN_PROGRESS,
+                    "이미 수집이 완료되었습니다: $businessNumber"
+                )
+            }
+            CollectionStatus.NOT_REQUESTED -> {
+                // 정상적으로 수집 요청 가능
+            }
         }
 
         // 3. 상태는 NOT_REQUESTED로 유지 (Collector가 polling으로 가져감)
