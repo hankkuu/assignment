@@ -11,11 +11,7 @@ dependencies {
     api("org.springframework.boot:spring-boot-starter-data-jpa")
 
     // H2 Database
-    api("com.h2database:h2")
-
-    // Apache POI (Excel 파싱)
-    api("org.apache.poi:poi:5.2.3")
-    api("org.apache.poi:poi-ooxml:5.2.3")
+    runtimeOnly("com.h2database:h2")
 
     // Validation
     api("org.springframework.boot:spring-boot-starter-validation")

@@ -6,6 +6,10 @@ plugins {
 dependencies {
     implementation(project(":infrastructure"))
 
+    // Apache POI (Excel 파싱)
+    implementation("org.apache.poi:poi:5.2.3")
+    implementation("org.apache.poi:poi-ooxml:5.2.3")
+
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("io.mockk:mockk:1.13.8")
