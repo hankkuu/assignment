@@ -155,6 +155,7 @@ fun requestCollection(businessNumber: String) {
 | **데이터베이스** | H2 Database | 2.x | 임베디드 DB, 빠른 프로토타이핑 |
 | **빌드 도구** | Gradle Kotlin DSL | 8.14.3 | 멀티모듈 지원, 타입 안전 |
 | **Excel 파싱** | Apache POI | 5.2.3 | 엑셀 데이터 처리 표준 라이브러리 |
+| **AOP** | Spring AOP | 3.5.x | 횡단 관심사 분리 (로깅, 트랜잭션) |
 | **테스트** | JUnit 5, MockK | - | Kotlin 친화적 테스트 프레임워크 |
 | **Java** | JDK | 21 LTS | 최신 LTS 버전 |
 
@@ -775,6 +776,389 @@ collector:
 3. 확장성: 파일 경로를 설정으로 외부화하여 다른 파일로 쉽게 교체 가능
 4. 유연성: 거래처명은 파싱 시점에 자동 생성되어 파일 구조 단순화
 
+### 8.5 코드 품질 개선사항
+
+초기 구현 이후 코드 품질 향상을 위해 다음과 같은 리팩토링을 수행하였습니다.
+
+#### 개선 1: AOP 기반 로깅 표준화 (task-6)
+
+**문제점**: 모든 Controller에 중복된 로깅 코드 존재
+```kotlin
+// Before: 각 Controller마다 반복
+private val logger = LoggerFactory.getLogger(javaClass)
+
+fun someEndpoint(...) {
+    logger.info("API 호출: {}", ...)
+    // 비즈니스 로직
+    logger.info("API 응답: {}", ...)
+}
+```
+
+**해결책**: `ControllerLoggingAspect` 도입
+```kotlin
+// api-server/src/main/kotlin/com/kcd/tax/api/aspect/ControllerLoggingAspect.kt
+@Aspect
+@Component
+class ControllerLoggingAspect {
+    @Around("execution(public * com.kcd.tax.api.controller..*(..))")
+    fun logApiCall(joinPoint: ProceedingJoinPoint): Any? {
+        // 요청 로깅
+        logger.info("[API_REQUEST] {} {}", method, uri)
+
+        val result = joinPoint.proceed()
+
+        // 응답 로깅 (수행 시간 포함)
+        logger.info("[API_RESPONSE] {} {} - {} ({}ms)", method, uri, status, duration)
+        return result
+    }
+}
+```
+
+**효과**:
+- ✅ 약 25줄의 중복 코드 제거
+- ✅ 표준화된 로그 포맷 (`[API_REQUEST]`, `[API_RESPONSE]`, `[API_ERROR]`)
+- ✅ 자동 성능 측정 (응답 시간 밀리초 단위)
+- ✅ Controller는 비즈니스 로직에만 집중
+
+**의존성 추가**:
+```kotlin
+// api-server/build.gradle.kts
+dependencies {
+    implementation("org.springframework.boot:spring-boot-starter-aop")
+}
+```
+
+#### 개선 2: N+1 쿼리 해결 및 Type-safe DTO 도입 (task-7)
+
+**문제점 1**: BusinessPlaceService의 N+1 쿼리
+```kotlin
+// Before: 1 + N queries
+val permissions = businessPlaceAdminRepository.findByBusinessNumber(businessNumber)
+permissions.forEach { permission ->
+    val admin = adminRepository.findById(permission.adminId)  // N queries!
+    // ...
+}
+```
+
+**해결책**: JOIN 쿼리 + Type-safe DTO
+```kotlin
+// BusinessPlaceAdminRepository.kt
+data class BusinessPlaceAdminDetail(
+    val permissionId: Long,
+    val businessNumber: String,
+    val adminId: Long,
+    val adminName: String,
+    val adminRole: String,
+    val grantedAt: LocalDateTime
+)
+
+@Query("""
+    SELECT new com.kcd.tax.infrastructure.repository.BusinessPlaceAdminDetail(
+        bpa.id, bpa.businessNumber, bpa.adminId,
+        a.name, CAST(a.role AS string), bpa.grantedAt
+    )
+    FROM BusinessPlaceAdmin bpa
+    INNER JOIN Admin a ON bpa.adminId = a.id
+    WHERE bpa.businessNumber = :businessNumber
+""")
+fun findDetailsByBusinessNumber(businessNumber: String): List<BusinessPlaceAdminDetail>
+```
+
+**문제점 2**: VatCalculationService의 `Array<Any>` 사용
+```kotlin
+// Before: 런타임 캐스팅 필요, 타입 안전하지 않음
+val results: List<Array<Any>> = repository.sumAmountByBusinessNumbersAndType(...)
+results.forEach { row ->
+    val businessNumber = row[0] as String  // 위험!
+    val totalAmount = row[1] as BigDecimal
+}
+```
+
+**해결책**: Type-safe DTO
+```kotlin
+// TransactionRepository.kt
+data class TransactionSumResult(
+    val businessNumber: String,
+    val totalAmount: BigDecimal
+)
+
+@Query("""
+    SELECT new com.kcd.tax.infrastructure.repository.TransactionSumResult(
+        t.businessNumber,
+        COALESCE(SUM(t.amount), 0)
+    )
+    FROM Transaction t
+    WHERE t.businessNumber IN :businessNumbers
+    AND t.type = :type
+    GROUP BY t.businessNumber
+""")
+fun sumAmountByBusinessNumbersAndType(...): List<TransactionSumResult>
+```
+
+**효과**:
+- ✅ N+1 쿼리 제거: 1 + N → 1 query
+- ✅ 타입 안전성: 컴파일 타임 타입 체크
+- ✅ 가독성 향상: `result.totalAmount` vs `row[1] as BigDecimal`
+- ✅ IDE 자동완성 지원
+
+#### 개선 3: 보안 강화 (task-7)
+
+**보안 취약점 1**: Path Traversal 공격 가능성
+```kotlin
+// Before: 경로 검증 없음
+fun parseExcelFile(filePath: String, businessNumber: String) {
+    val file = File(filePath)  // "../../../etc/passwd" 가능!
+    // ...
+}
+```
+
+**해결책**: 경로 정규화 및 검증
+```kotlin
+// ExcelParser.kt
+private fun validateFilePath(filePath: String) {
+    // 1. 빈 경로 체크
+    if (filePath.isBlank()) {
+        throw BadRequestException(ErrorCode.INVALID_INPUT, "파일 경로가 비어있습니다")
+    }
+
+    // 2. 경로 순회 패턴 차단
+    val dangerousPatterns = listOf("..", "./", ".\\")
+    if (dangerousPatterns.any { filePath.contains(it) }) {
+        logger.warn("경로 순회 공격 시도 감지: {}", filePath)
+        throw BadRequestException(ErrorCode.INVALID_INPUT, "유효하지 않은 파일 경로입니다")
+    }
+
+    // 3. 절대 경로로 정규화
+    val file = File(filePath)
+    val canonicalPath = try {
+        file.canonicalPath
+    } catch (e: Exception) {
+        logger.warn("파일 경로 정규화 실패: {}", filePath, e)
+        throw BadRequestException(ErrorCode.INVALID_INPUT, "유효하지 않은 파일 경로입니다")
+    }
+
+    // 4. 추가 검증 로직...
+}
+```
+
+**보안 취약점 2**: Log Injection 가능성
+```kotlin
+// Before: 사용자 입력이 직접 로그에 포함
+logger.info("사업장 조회: " + businessNumber)  // 개행 문자 주입 가능
+```
+
+**해결책**: 파라미터화된 로깅 (SLF4J Parameterized Logging)
+```kotlin
+// After: 안전한 파라미터 바인딩
+logger.info("사업장 조회: {}", businessNumber)
+logger.warn("권한 없음: businessNumber={}, adminId={}", businessNumber, adminId)
+```
+
+**효과**:
+- ✅ Path Traversal 공격 방지
+- ✅ Log Injection 방지
+- ✅ 로깅 성능 향상 (문자열 연산 불필요)
+- ✅ 보안 이벤트 감사 로그
+
+#### 개선 4: Controller 책임 분리 (task-7)
+
+**문제점**: `BusinessPlaceController`가 CRUD + 권한 관리를 모두 처리
+```kotlin
+// Before: SRP 위반
+@RestController
+@RequestMapping("/api/v1/business-places")
+class BusinessPlaceController {
+    fun create(...)         // CRUD
+    fun getAll(...)         // CRUD
+    fun update(...)         // CRUD
+
+    fun grantPermission(...) // 권한 관리
+    fun getPermissions(...)  // 권한 관리
+    fun revokePermission(...) // 권한 관리
+}
+```
+
+**해결책**: 권한 관리 전용 Controller 분리
+```kotlin
+// BusinessPlaceController.kt - CRUD만 담당
+@RestController
+@RequestMapping("/api/v1/business-places")
+class BusinessPlaceController {
+    @PostMapping
+    fun create(...) { ... }
+
+    @GetMapping
+    fun getAll(...) { ... }
+
+    @PutMapping("/{businessNumber}")
+    fun update(...) { ... }
+}
+
+// BusinessPlaceAdminController.kt - 권한 관리 전담 (RESTful Sub-resource)
+@RestController
+@RequestMapping("/api/v1/business-places/{businessNumber}/admins")
+class BusinessPlaceAdminController {
+    @PostMapping
+    fun grantPermission(@PathVariable businessNumber: String, ...) { ... }
+
+    @GetMapping
+    fun getPermissions(@PathVariable businessNumber: String) { ... }
+
+    @DeleteMapping("/{adminId}")
+    fun revokePermission(@PathVariable businessNumber: String, @PathVariable adminId: Long) { ... }
+}
+```
+
+**효과**:
+- ✅ 단일 책임 원칙(SRP) 준수
+- ✅ RESTful Sub-resource 패턴 적용
+- ✅ URL 구조 명확화: `/business-places/{id}/admins`
+- ✅ 테스트 용이성 향상
+
+#### 개선 5: 페이징 로직 Service 계층 이동 (task-8)
+
+**문제점**: Controller에 비즈니스 로직 (33줄)
+```kotlin
+// Before: VatController에 권한 체크 + 페이징 로직 혼재
+@GetMapping
+fun getVat(..., pageable: Pageable): ResponseEntity<Page<VatResponse>> {
+    val adminId = AuthContext.getAdminId()
+    val adminRole = AuthContext.getAdminRole()
+
+    // 1. 권한 기반 필터링 (비즈니스 로직)
+    val businessNumbers = when {
+        businessNumber != null -> {
+            vatCalculationService.checkPermission(businessNumber, adminId, adminRole)
+            listOf(businessNumber)
+        }
+        else -> vatCalculationService.getAuthorizedBusinessNumbers(adminId, adminRole)
+    }
+
+    // 2. 페이징 계산 (비즈니스 로직)
+    val start = (pageable.pageNumber * pageable.pageSize).coerceAtMost(totalElements)
+    val end = (start + pageable.pageSize).coerceAtMost(totalElements)
+    val pagedBusinessNumbers = businessNumbers.subList(start, end)
+
+    // 3. 부가세 계산
+    val results = vatCalculationService.calculateVat(pagedBusinessNumbers)
+
+    // 4. Page 객체 생성
+    val page = PageImpl(results, pageable, businessNumbers.size.toLong())
+    val responsePage = page.map { VatResponse.from(it) }
+
+    return ResponseEntity.ok(responsePage)
+}
+```
+
+**해결책 1**: 재사용 가능한 `PageableHelper` 유틸리티 생성
+```kotlin
+// api-server/src/main/kotlin/com/kcd/tax/api/util/PageableHelper.kt
+object PageableHelper {
+    /**
+     * 컬렉션을 페이징 처리하여 Page 객체 반환
+     */
+    fun <T> createPage(items: List<T>, pageable: Pageable): Page<T> {
+        val totalElements = items.size
+        val pagedItems = extractPagedItems(items, pageable)
+        return PageImpl(pagedItems, pageable, totalElements.toLong())
+    }
+
+    /**
+     * 컬렉션에서 요청된 페이지의 아이템만 추출
+     */
+    fun <T> extractPagedItems(items: List<T>, pageable: Pageable): List<T> {
+        val totalElements = items.size
+        val start = (pageable.pageNumber * pageable.pageSize).coerceAtMost(totalElements)
+        val end = (start + pageable.pageSize).coerceAtMost(totalElements)
+
+        return if (start < totalElements) {
+            items.subList(start, end)
+        } else {
+            emptyList()
+        }
+    }
+
+    fun <T> hasNext(items: List<T>, pageable: Pageable): Boolean { ... }
+    fun calculateTotalPages(totalElements: Int, pageSize: Int): Int { ... }
+}
+```
+
+**해결책 2**: Service 계층에 페이징 책임 이동
+```kotlin
+// VatCalculationService.kt
+fun calculateVatWithPaging(
+    adminId: Long,
+    role: AdminRole,
+    businessNumber: String?,
+    pageable: Pageable
+): Page<VatResult> {
+    // 1. 권한 기반 사업장 목록 조회
+    val authorizedBusinessNumbers = when {
+        businessNumber != null -> {
+            checkPermission(businessNumber, adminId, role)
+            listOf(businessNumber)
+        }
+        else -> getAuthorizedBusinessNumbers(adminId, role)
+    }
+
+    // 2. 페이징 적용 (메모리 기반)
+    val pagedBusinessNumbers = PageableHelper.extractPagedItems(authorizedBusinessNumbers, pageable)
+
+    // 3. 부가세 계산 (페이징된 사업장만)
+    val results = if (pagedBusinessNumbers.isNotEmpty()) {
+        calculateVat(pagedBusinessNumbers)
+    } else {
+        emptyList()
+    }
+
+    // 4. Page 객체 생성
+    return PageImpl(results, pageable, authorizedBusinessNumbers.size.toLong())
+}
+```
+
+**해결책 3**: Controller 간소화
+```kotlin
+// After: 단 10줄로 단순화
+@GetMapping
+fun getVat(..., pageable: Pageable): ResponseEntity<Page<VatResponse>> {
+    val adminId = AuthContext.getAdminId()
+    val adminRole = AuthContext.getAdminRole()
+
+    // Service 레이어에서 권한 체크 + 페이징 + 부가세 계산 일괄 처리
+    val resultPage = vatCalculationService.calculateVatWithPaging(
+        adminId, adminRole, businessNumber, pageable
+    )
+
+    // DTO 변환
+    val responsePage = resultPage.map { VatResponse.from(it) }
+    return ResponseEntity.ok(responsePage)
+}
+```
+
+**효과**:
+- ✅ Controller: 33줄 → 10줄 (70% 감소)
+- ✅ 관심사의 분리: Controller는 HTTP 처리만, Service는 비즈니스 로직
+- ✅ 테스트 용이성: Service 레이어 단위 테스트 가능
+- ✅ 재사용성: `PageableHelper` 다른 도메인에서도 활용 가능
+- ✅ 유지보수성: 페이징 로직 수정 시 한 곳만 변경
+
+**주의사항**:
+- 이 방식은 **메모리 기반 페이징**이므로 대용량 데이터에는 적합하지 않음
+- 권한 필터링 등 비즈니스 로직 후 페이징이 필요한 경우에만 사용
+- 가능하면 Repository 레이어에서 DB 페이징(LIMIT/OFFSET)을 사용하는 것이 권장됨
+
+#### 개선 결과 요약
+
+| 개선 항목 | 변경 내용 | 효과 |
+|---------|---------|------|
+| **AOP 로깅** | ControllerLoggingAspect 도입 | 중복 코드 25줄 제거, 표준화 |
+| **N+1 해결** | JOIN 쿼리 + Type-safe DTO | 쿼리 1+N → 1, 타입 안전성 |
+| **보안 강화** | Path Traversal 방지, 파라미터화 로깅 | 보안 취약점 제거 |
+| **Controller 분리** | BusinessPlaceAdminController 분리 | SRP 준수, RESTful 패턴 |
+| **페이징 리팩토링** | PageableHelper + Service 이동 | Controller 70% 축소, 관심사 분리 |
+
+**테스트 커버리지**: 모든 개선사항은 기존 테스트 통과를 유지하며 점진적으로 적용됨
+
 ---
 
 ## 9. 향후 개선 사항
@@ -837,11 +1221,13 @@ tax/
 ├── api-server/                  # REST API 서버
 │   └── src/main/kotlin/com/kcd/tax/api/
 │       ├── TaxApiApplication.kt
-│       ├── controller/          # CollectionController, VatController, etc.
+│       ├── aspect/              # ControllerLoggingAspect (AOP 로깅)
+│       ├── controller/          # CollectionController, VatController, BusinessPlaceAdminController
 │       ├── service/             # CollectionService, VatCalculationService
 │       ├── dto/                 # Request/Response DTOs
 │       ├── security/            # AuthContext, AdminAuthInterceptor
 │       ├── exception/           # GlobalExceptionHandler
+│       ├── util/                # PageableHelper (페이징 유틸리티)
 │       └── config/              # WebConfig, JpaConfig
 │
 └── collector/                   # 데이터 수집기
@@ -860,6 +1246,7 @@ tax/
 
 ---
 
-**문서 버전**: 2.0
-**최종 수정일**: 2025-01-21
+**문서 버전**: 2.1
+**최종 수정일**: 2025-01-23
 **작성 목적**: 세금 TF 개발 과제의 요구사항 분석 및 구현 설명
+**최근 업데이트**: 코드 품질 개선사항 (AOP 로깅, N+1 해결, 보안 강화, Controller 분리, 페이징 리팩토링) 추가

@@ -64,6 +64,7 @@ Database (H2)
 - **Security**: `AdminAuthInterceptor` → `AuthContext` (ThreadLocal) → `@RequireAuth`/`@RequireAdmin` annotations
 - **Exception Handling**: `GlobalExceptionHandler` catches all exceptions and returns `ErrorResponse`
 - **Async Processing**: `@Async` + `ThreadPoolTaskExecutor` (configured in `AsyncConfig`)
+- **AOP Logging**: `ControllerLoggingAspect` automatically logs all API calls (request/response/error with duration)
 
 ## Architecture Benefits (4-Module Structure)
 
@@ -904,29 +905,80 @@ Returns standardized `ErrorResponse` with code, message, timestamp.
 4. **State Validation**: Use domain methods (`startCollection()`, `completeCollection()`) to enforce state machine
 5. **BigDecimal for Money**: Always use `BigDecimal` for amounts, never `Double` or `Float`
 
+## Recent Code Quality Improvements
+
+### 1. AOP-based Logging (task-6)
+- **ControllerLoggingAspect**: Centralized logging for all API endpoints
+- **Benefits**: DRY principle, consistent log format, automatic performance tracking
+- **Log Format**:
+  - `[API_REQUEST] GET /api/v1/vat?businessNumber=123`
+  - `[API_RESPONSE] GET /api/v1/vat status=200 duration=25ms`
+  - `[API_ERROR] POST /api/v1/collections error=ConflictException duration=5ms`
+
+### 2. N+1 Query Resolution & Type-safe DTOs (task-7)
+- **BusinessPlaceAdminRepository.findDetailsByBusinessNumber()**: JOIN query eliminates N+1
+- **TransactionRepository**: Returns `TransactionSumResult` instead of `Array<Any>`
+- **Benefits**: Performance optimization, type safety, no casting errors
+
+### 3. Security Enhancements (task-7)
+- **ExcelParser**: Path Traversal attack prevention
+  - Validates file paths, blocks "..", "./", ".\" patterns
+  - Canonicalizes paths before processing
+- **Parameterized logging**: SLF4J best practices throughout
+
+### 4. Controller Separation (task-7)
+- **BusinessPlaceAdminController**: Extracted from BusinessPlaceController
+- **Follows SRP**: CRUD operations vs Permission management
+- **RESTful pattern**: `/api/v1/business-places/{businessNumber}/admins`
+
+### 5. Pagination Refactoring (task-8)
+- **PageableHelper utility**: Reusable memory-based pagination
+- **VatCalculationService.calculateVatWithPaging()**: Business logic moved to service layer
+- **VatController**: Simplified from 33 lines to 10 lines
+- **Benefits**: Separation of concerns, testability, maintainability
+
 ## Known Limitations
 
 - **Security**: Header-based auth is for prototype only - production needs JWT/OAuth2
 - **Async Monitoring**: No way to track async job progress beyond database status polling
 - **No Caching**: VAT calculations are not cached - consider Redis for production
-- **No Pagination**: VAT queries can return all businesses - add pagination for scale
+- **Memory-based Pagination**: For large datasets, consider DB-level pagination (LIMIT/OFFSET)
 - **5-Minute Wait**: Actual collection uses `Thread.sleep()` - production should use message queue
 
 ## Package Structure Logic
 
 ```
-controller/          # HTTP layer, DTOs in/out, auth annotations
-  dto/
-    request/        # Validation via @Valid
-    response/       # Serialized to JSON
-service/            # Business logic, transactions
-repository/         # JPA queries, custom JPQL
-domain/             # Entities with business rules
-  enums/           # Status, Role, Type enums
-security/           # AuthContext, Interceptor, annotations
-exception/          # ErrorCode, custom exceptions, handler
-util/              # Stateless utilities (VatCalculator, ExcelParser)
-config/            # Spring configuration (Async, Web, JPA)
+api-server/
+├── controller/          # HTTP layer, DTOs in/out, auth annotations
+│   ├── dto/
+│   │   ├── request/    # Validation via @Valid
+│   │   └── response/   # Serialized to JSON
+│   ├── VatController.kt
+│   ├── BusinessPlaceController.kt
+│   └── BusinessPlaceAdminController.kt  # Separated for SRP
+├── service/            # Business logic, transactions, pagination
+│   ├── VatCalculationService.kt  # calculateVatWithPaging()
+│   ├── BusinessPlaceService.kt
+│   └── CollectionService.kt
+├── security/           # AuthContext, Interceptor, annotations
+├── aspect/            # AOP cross-cutting concerns
+│   └── ControllerLoggingAspect.kt  # Centralized API logging
+├── util/              # Application-level utilities
+│   └── PageableHelper.kt  # Memory-based pagination
+└── config/            # Spring configuration (Web, Security)
+
+infrastructure/
+├── domain/             # JPA Entities with business rules
+├── repository/         # JPA queries, custom JPQL with DTOs
+│   ├── BusinessPlaceAdminDetail  # Type-safe DTO
+│   └── TransactionSumResult      # Type-safe DTO
+└── util/              # Technical utilities
+    ├── VatCalculator.kt
+    └── ExcelParser.kt  # with Path Traversal protection
+
+common/
+├── enums/             # Status, Role, Type enums
+└── exception/         # ErrorCode, custom exceptions
 ```
 
 When adding features, follow this structure strictly - it maintains separation of concerns.
