@@ -30,6 +30,9 @@ class BusinessPlace(
     @Column(name = "collection_status", nullable = false, length = 20)
     var collectionStatus: CollectionStatus = CollectionStatus.NOT_REQUESTED,
 
+    @Column(name = "collection_requested_at")
+    var collectionRequestedAt: LocalDateTime? = null,
+
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     val createdAt: LocalDateTime = LocalDateTime.now(),
@@ -46,7 +49,11 @@ class BusinessPlace(
         require(collectionStatus == CollectionStatus.NOT_REQUESTED) {
             "수집은 NOT_REQUESTED 상태에서만 시작할 수 있습니다. 현재 상태: $collectionStatus"
         }
+        require(collectionRequestedAt != null) {
+            "수집 요청이 먼저 필요합니다."
+        }
         collectionStatus = CollectionStatus.COLLECTING
+        collectionRequestedAt = null
     }
 
     /**
@@ -65,6 +72,7 @@ class BusinessPlace(
      */
     fun resetCollection() {
         collectionStatus = CollectionStatus.NOT_REQUESTED
+        collectionRequestedAt = null
     }
 
     override fun equals(other: Any?): Boolean {

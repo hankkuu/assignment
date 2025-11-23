@@ -6,9 +6,7 @@ import com.kcd.tax.infrastructure.helper.BusinessPlaceRepositoryHelper
 import com.kcd.tax.infrastructure.repository.BusinessPlaceRepository
 import com.kcd.tax.infrastructure.repository.TransactionRepository
 import com.kcd.tax.collector.util.ExcelParser
-import jakarta.persistence.LockModeType
 import org.slf4j.LoggerFactory
-import org.springframework.data.jpa.repository.Lock
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 
@@ -22,9 +20,8 @@ class CollectionProcessor(
     private val logger = LoggerFactory.getLogger(javaClass)
 
     @Transactional
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
     fun start(businessNumber: String) {
-        val businessPlace = businessPlaceRepository.findById(businessNumber).orElse(null)
+        val businessPlace = businessPlaceRepository.findByBusinessNumberForUpdate(businessNumber)
             ?: throw IllegalStateException("BusinessPlace not found")
 
         businessPlace.startCollection()

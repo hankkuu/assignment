@@ -1,9 +1,10 @@
 package com.kcd.tax.infrastructure.domain
 
 import com.kcd.tax.common.enums.CollectionStatus
-import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
+import java.time.LocalDateTime
 
 class BusinessPlaceTest {
 
@@ -30,6 +31,7 @@ class BusinessPlaceTest {
         )
 
         // When
+        businessPlace.collectionRequestedAt = LocalDateTime.now()
         businessPlace.startCollection()
 
         // Then
@@ -43,6 +45,7 @@ class BusinessPlaceTest {
             businessNumber = "1234567890",
             name = "테스트 주식회사"
         )
+        businessPlace.collectionRequestedAt = LocalDateTime.now()
         businessPlace.startCollection()
 
         // When & Then
@@ -59,6 +62,7 @@ class BusinessPlaceTest {
             businessNumber = "1234567890",
             name = "테스트 주식회사"
         )
+        businessPlace.collectionRequestedAt = LocalDateTime.now()
         businessPlace.startCollection()
 
         // When
@@ -90,6 +94,7 @@ class BusinessPlaceTest {
             businessNumber = "1234567890",
             name = "테스트 주식회사"
         )
+        businessPlace.collectionRequestedAt = LocalDateTime.now()
         businessPlace.startCollection()
 
         // When
@@ -106,6 +111,7 @@ class BusinessPlaceTest {
             businessNumber = "1234567890",
             name = "테스트 주식회사"
         )
+        businessPlace.collectionRequestedAt = LocalDateTime.now()
         businessPlace.startCollection()
         businessPlace.completeCollection()
 
@@ -190,6 +196,7 @@ class BusinessPlaceTest {
             businessNumber = "1234567890",
             name = "테스트 주식회사"
         )
+        businessPlace.collectionRequestedAt = LocalDateTime.now()
         businessPlace.startCollection()
         businessPlace.completeCollection()
 
@@ -207,6 +214,7 @@ class BusinessPlaceTest {
             businessNumber = "1234567890",
             name = "테스트 주식회사"
         )
+        businessPlace.collectionRequestedAt = LocalDateTime.now()
         businessPlace.startCollection()
         businessPlace.completeCollection()
 
@@ -280,10 +288,12 @@ class BusinessPlaceTest {
             businessNumber = "1234567890",
             name = "테스트 주식회사"
         )
+        businessPlace.collectionRequestedAt = LocalDateTime.now()
         businessPlace.startCollection()
         businessPlace.resetCollection()
 
         // When
+        businessPlace.collectionRequestedAt = LocalDateTime.now()
         businessPlace.startCollection()
 
         // Then
@@ -299,6 +309,7 @@ class BusinessPlaceTest {
         )
 
         // When & Then - 첫 번째 사이클
+        businessPlace.collectionRequestedAt = LocalDateTime.now()
         businessPlace.startCollection()
         assertEquals(CollectionStatus.COLLECTING, businessPlace.collectionStatus)
         businessPlace.completeCollection()
@@ -307,6 +318,7 @@ class BusinessPlaceTest {
         // 두 번째 사이클
         businessPlace.resetCollection()
         assertEquals(CollectionStatus.NOT_REQUESTED, businessPlace.collectionStatus)
+        businessPlace.collectionRequestedAt = LocalDateTime.now()
         businessPlace.startCollection()
         assertEquals(CollectionStatus.COLLECTING, businessPlace.collectionStatus)
         businessPlace.completeCollection()

@@ -11,6 +11,7 @@ import io.mockk.verify
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.assertThrows
+import java.time.LocalDateTime
 import java.util.*
 
 class CollectionServiceTest {
@@ -25,6 +26,7 @@ class CollectionServiceTest {
         val businessPlace = BusinessPlace(businessNumber, "테스트")
 
         every { businessPlaceRepository.findById(businessNumber) } returns Optional.of(businessPlace)
+        every { businessPlaceRepository.save(any()) } returns businessPlace
 
         // When
         val result = service.requestCollection(businessNumber)
@@ -32,8 +34,12 @@ class CollectionServiceTest {
         // Then
         assertEquals(CollectionStatus.NOT_REQUESTED, result)
         assertEquals(CollectionStatus.NOT_REQUESTED, businessPlace.collectionStatus)
+        assertNotNull(businessPlace.collectionRequestedAt)
 
-        verify { businessPlaceRepository.findById(businessNumber) }
+        verify(exactly = 1) {
+            businessPlaceRepository.findById(businessNumber)
+            businessPlaceRepository.save(businessPlace)
+        }
     }
 
     @Test
@@ -55,6 +61,7 @@ class CollectionServiceTest {
         // Given
         val businessNumber = "1234567890"
         val businessPlace = BusinessPlace(businessNumber, "테스트")
+        businessPlace.collectionRequestedAt = LocalDateTime.now()
         businessPlace.startCollection() // COLLECTING 상태로 변경
 
         every { businessPlaceRepository.findById(businessNumber) } returns Optional.of(businessPlace)
@@ -72,6 +79,7 @@ class CollectionServiceTest {
         // Given
         val businessNumber = "1234567890"
         val businessPlace = BusinessPlace(businessNumber, "테스트")
+        businessPlace.collectionRequestedAt = LocalDateTime.now()
         businessPlace.startCollection()
         businessPlace.completeCollection() // COLLECTED 상태로 변경
 
@@ -90,6 +98,7 @@ class CollectionServiceTest {
         // Given
         val businessNumber = "1234567890"
         val businessPlace = BusinessPlace(businessNumber, "테스트")
+        businessPlace.collectionRequestedAt = LocalDateTime.now()
         businessPlace.startCollection()
 
         every { businessPlaceRepository.findById(businessNumber) } returns Optional.of(businessPlace)

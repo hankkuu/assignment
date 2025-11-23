@@ -12,13 +12,12 @@ import com.kcd.tax.infrastructure.repository.BusinessPlaceAdminRepository
 import com.kcd.tax.infrastructure.repository.BusinessPlaceAdminDetail
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import io.mockk.slot
+import io.mockk.verify
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.assertThrows
 import java.time.LocalDateTime
-import java.util.Optional
 import java.util.*
 
 class BusinessPlaceServiceTest {

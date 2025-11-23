@@ -8,6 +8,7 @@ import com.kcd.tax.infrastructure.repository.BusinessPlaceRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.LocalDateTime
 
 /**
  * 수집 관리 서비스 (API Server)
@@ -60,7 +61,14 @@ class CollectionService(
                 )
             }
             CollectionStatus.NOT_REQUESTED -> {
-                // 정상적으로 수집 요청 가능
+                if (businessPlace.collectionRequestedAt != null) {
+                    throw ConflictException(
+                        ErrorCode.COLLECTION_ALREADY_IN_PROGRESS,
+                        "이미 수집 요청이 대기 중입니다: $businessNumber"
+                    )
+                }
+                businessPlace.collectionRequestedAt = LocalDateTime.now()
+                businessPlaceRepository.save(businessPlace)
             }
         }
 

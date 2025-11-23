@@ -14,7 +14,13 @@ import org.springframework.scheduling.annotation.EnableScheduling
  * - 5분 수집 시뮬레이션
  * - 엑셀 데이터 파싱 및 DB 적재
  */
-@SpringBootApplication(scanBasePackages = ["com.kcd.tax.collector", "com.kcd.tax.common"])
+@SpringBootApplication(
+    scanBasePackages = [
+        "com.kcd.tax.collector",
+        "com.kcd.tax.infrastructure",
+        "com.kcd.tax.common"
+    ]
+)
 @EntityScan(basePackages = ["com.kcd.tax.infrastructure.domain"])
 @EnableJpaRepositories(basePackages = ["com.kcd.tax.infrastructure.repository"])
 @EnableScheduling

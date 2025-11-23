@@ -26,7 +26,7 @@ class ScheduledCollectionPoller(
     @Scheduled(fixedDelay = CollectionConstants.POLL_INTERVAL_MILLIS)
     fun pollAndCollect() {
         val pendingJobs = businessPlaceRepository
-            .findByCollectionStatus(CollectionStatus.NOT_REQUESTED)
+            .findByCollectionStatusAndCollectionRequestedAtIsNotNull(CollectionStatus.NOT_REQUESTED)
 
         if (pendingJobs.isNotEmpty()) {
             logger.info("=== 수집 대기 작업 발견: ${pendingJobs.size}개 ===")

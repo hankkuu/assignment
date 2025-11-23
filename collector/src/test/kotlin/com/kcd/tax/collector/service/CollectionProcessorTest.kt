@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import java.math.BigDecimal
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.util.*
 
 /**
@@ -48,9 +49,11 @@ class CollectionProcessorTest {
         val businessPlace = BusinessPlace(
             businessNumber = businessNumber,
             name = "테스트 회사"
-        )
+        ).apply {
+            collectionRequestedAt = LocalDateTime.now()
+        }
 
-        every { businessPlaceRepository.findById(businessNumber) } returns Optional.of(businessPlace)
+        every { businessPlaceRepository.findByBusinessNumberForUpdate(businessNumber) } returns businessPlace
         every { businessPlaceRepository.save(any()) } returns businessPlace
 
         // When
@@ -65,7 +68,7 @@ class CollectionProcessorTest {
     fun `start - 사업장이 없으면 예외를 발생시킨다`() {
         // Given
         val businessNumber = "1234567890"
-        every { businessPlaceRepository.findById(businessNumber) } returns Optional.empty()
+        every { businessPlaceRepository.findByBusinessNumberForUpdate(businessNumber) } returns null
 
         // When & Then
         assertThrows<IllegalStateException> {
@@ -87,6 +90,7 @@ class CollectionProcessorTest {
             businessNumber = businessNumber,
             name = "테스트 회사"
         ).apply {
+            collectionRequestedAt = LocalDateTime.now()
             startCollection()  // 상태를 COLLECTING으로 변경
         }
 
@@ -132,6 +136,7 @@ class CollectionProcessorTest {
             businessNumber = businessNumber,
             name = "테스트 회사"
         ).apply {
+            collectionRequestedAt = LocalDateTime.now()
             startCollection()
         }
 
@@ -188,6 +193,7 @@ class CollectionProcessorTest {
             businessNumber = businessNumber,
             name = "테스트 회사"
         ).apply {
+            collectionRequestedAt = LocalDateTime.now()
             startCollection()  // COLLECTING 상태로 변경
         }
 
@@ -230,6 +236,7 @@ class CollectionProcessorTest {
             businessNumber = businessNumber,
             name = "테스트 회사"
         ).apply {
+            collectionRequestedAt = LocalDateTime.now()
             startCollection()
             completeCollection()  // COLLECTED 상태로 변경
         }
