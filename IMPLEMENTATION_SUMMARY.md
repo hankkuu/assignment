@@ -123,6 +123,7 @@ project.pdf의 모든 요구사항이 완전히 구현되었습니다.
 **구현**:
 - ✅ Spring Boot 3.5.7 (최신 LTS)
 - ✅ Spring Data JPA (Hibernate)
+- ✅ Spring AOP (횡단 관심사 - 로깅, 트랜잭션)
 - ✅ Kotlin 1.9.25
 - ✅ H2 Database (File-based with AUTO_SERVER)
 - ✅ Gradle 8.14.3 (Kotlin DSL)
@@ -148,16 +149,102 @@ project.pdf의 모든 요구사항이 완전히 구현되었습니다.
 - 사업자번호 10자리 검증
 - 상태 전이 검증 (도메인 메서드)
 
-### 4. 로깅
-- SLF4J + Logback
-- 요청/응답 로깅
-- 수집 진행 상황 로깅
+### 4. AOP 기반 로깅 (task-6)
+- **ControllerLoggingAspect**: 모든 API 엔드포인트 자동 로깅
+- **표준화된 로그 포맷**: `[API_REQUEST]`, `[API_RESPONSE]`, `[API_ERROR]`
+- **성능 측정**: 응답 시간 자동 추적 (밀리초 단위)
+- **중복 제거**: Controller에서 약 25줄의 중복 로깅 코드 제거
 
 ### 5. 문서화
 - **README.md**: 프로젝트 소개 및 실행 방법
 - **project.md**: 요구사항 분석 및 구현 설명
 - **SCHEMA.md**: 데이터베이스 스키마 설계 (신규 추가)
 - **CLAUDE.md**: Claude Code용 개발 가이드
+
+### 6. 성능 최적화 (task-7)
+- **N+1 쿼리 해결**: JOIN 쿼리로 1 + N → 1 쿼리로 개선
+- **Type-safe DTO**: 런타임 캐스팅 제거, 컴파일 타임 타입 체크
+- **인덱스 최적화**: 수집 상태별, 사업장별, 거래 타입별 인덱스
+
+### 7. 보안 강화 (task-7)
+- **Path Traversal 방지**: 파일 경로 검증 및 정규화
+- **Log Injection 방지**: 파라미터화된 로깅
+- **DoS 방지**: 페이징 크기 제한 (최대 100)
+
+---
+
+## 🔧 코드 품질 개선사항 (Post-Implementation)
+
+초기 구현 이후 코드 품질 향상을 위한 리팩토링을 수행하였습니다.
+
+### 1. AOP 기반 로깅 표준화 (task-6)
+
+**문제**: 모든 Controller에 중복된 로깅 코드 존재
+
+**해결**:
+- `ControllerLoggingAspect` 도입으로 횡단 관심사 분리
+- 약 25줄의 중복 코드 제거
+- 표준화된 로그 포맷 적용
+- 자동 성능 측정 (응답 시간 밀리초 단위)
+
+**효과**: DRY 원칙 준수, 유지보수성 향상
+
+### 2. N+1 쿼리 해결 및 Type-safe DTO (task-7)
+
+**문제**:
+- `BusinessPlaceService`: 권한 조회 시 N+1 쿼리 발생
+- `TransactionRepository`: `Array<Any>` 사용으로 타입 안전성 부족
+
+**해결**:
+- **JOIN 쿼리 도입**: `findDetailsByBusinessNumber()` - 1 + N → 1 query
+- **Type-safe DTO**:
+  - `BusinessPlaceAdminDetail` (권한 정보)
+  - `TransactionSumResult` (거래 합계)
+- 컴파일 타임 타입 체크 가능
+
+**효과**: 쿼리 성능 최적화, 런타임 에러 방지, 코드 가독성 향상
+
+### 3. 보안 강화 (task-7)
+
+**개선사항**:
+- **Path Traversal 공격 방지**: `ExcelParser`에 경로 검증 로직 추가
+  - 위험 패턴 차단: `..`, `./`, `.\`
+  - 경로 정규화 (canonicalization)
+- **Log Injection 방지**: 파라미터화된 로깅 (SLF4J) 적용
+  - 문자열 연결 방식 → `logger.info("msg: {}", param)` 방식
+
+**효과**: 보안 취약점 제거, 안전한 파일 처리
+
+### 4. Controller 책임 분리 (task-7)
+
+**문제**: `BusinessPlaceController`가 CRUD + 권한 관리를 모두 담당 (SRP 위반)
+
+**해결**:
+- `BusinessPlaceAdminController` 분리
+- RESTful Sub-resource 패턴 적용: `/api/v1/business-places/{businessNumber}/admins`
+
+**효과**: 단일 책임 원칙 준수, URL 구조 명확화, 테스트 용이성 향상
+
+### 5. 페이징 로직 Service 계층 이동 (task-8)
+
+**문제**: Controller에 비즈니스 로직 (페이징) 혼재 (33줄)
+
+**해결**:
+- `PageableHelper` 유틸리티 생성 (재사용 가능한 메모리 기반 페이징)
+- `VatCalculationService.calculateVatWithPaging()` 추가
+- `VatController` 간소화: 33줄 → 10줄 (70% 감소)
+
+**효과**: 관심사의 분리, Service 레이어 단위 테스트 가능, 유지보수성 향상
+
+### 개선 결과 요약
+
+| 개선 항목 | 변경 내용 | 효과 |
+|---------|---------|------|
+| AOP 로깅 | ControllerLoggingAspect 도입 | 중복 코드 25줄 제거, 표준화 |
+| N+1 해결 | JOIN 쿼리 + Type-safe DTO | 쿼리 1+N → 1, 타입 안전성 |
+| 보안 강화 | Path Traversal 방지, 파라미터화 로깅 | 보안 취약점 제거 |
+| Controller 분리 | BusinessPlaceAdminController 분리 | SRP 준수, RESTful 패턴 |
+| 페이징 리팩토링 | PageableHelper + Service 이동 | Controller 70% 축소, 관심사 분리 |
 
 ---
 
@@ -179,9 +266,14 @@ project.pdf의 모든 요구사항이 완전히 구현되었습니다.
 9. `DELETE /api/v1/business-places/{businessNumber}/admins/{adminId}` - 권한 삭제 (ADMIN)
 
 ### 부가세 조회 (1개)
-10. `GET    /api/v1/vat?businessNumber={businessNumber}` - 부가세 조회
+10. `GET    /api/v1/vat?businessNumber={businessNumber}&page={page}&size={size}` - 부가세 조회 (페이징 지원)
 
 **총 10개 엔드포인트** (요구사항: 6개 → 구현: 10개)
+
+**페이징 지원** (task-8):
+- 부가세 조회 API에 Spring Data Pageable 지원 추가
+- 기본값: `page=0, size=20`
+- 최대 페이지 크기: 100 (DoS 방지)
 
 ---
 
@@ -312,23 +404,40 @@ BUILD SUCCESSFUL in 10s
 - **테이블 스키마**: 100% ✅ (문서 제출)
 
 ### 추가 구현율
-- 멀티모듈 아키텍처
-- 전역 에러 처리
-- 입력값 검증
-- 로깅 시스템
-- 포괄적인 문서화
+- 멀티모듈 아키텍처 (관심사의 분리)
+- 전역 에러 처리 (GlobalExceptionHandler)
+- 입력값 검증 (Jakarta Validation)
+- AOP 기반 로깅 시스템 (횡단 관심사 분리)
+- N+1 쿼리 최적화 (JOIN + Type-safe DTO)
+- 보안 강화 (Path Traversal, Log Injection 방지)
+- RESTful 아키텍처 (Sub-resource 패턴)
+- 페이징 지원 (메모리 기반)
+- 포괄적인 문서화 (README, project, SCHEMA, CLAUDE)
 
 ---
 
 ## 🚀 향후 개선 사항 (운영 환경 고려)
 
-1. **보안 강화**: JWT/OAuth2 인증
-2. **테스트 추가**: 단위 테스트, 통합 테스트
-3. **캐싱**: Redis 도입 (부가세 계산 결과)
+### 보안
+1. **JWT/OAuth2 인증**: Header 기반 인증 → JWT 토큰 기반 인증
+2. **HTTPS 강제**: 모든 통신 암호화
+
+### 성능
+3. **캐싱**: Redis 도입 (부가세 계산 결과, 권한 정보)
 4. **메시지 큐**: RabbitMQ/Kafka (실시간 수집 요청 처리)
-5. **모니터링**: Actuator + Prometheus + Grafana
-6. **데이터베이스**: PostgreSQL/MySQL (운영 환경)
-7. **배포**: Docker + Kubernetes
+5. **DB 페이징**: 메모리 기반 → DB LIMIT/OFFSET (대용량 데이터)
+
+### 테스트
+6. **단위 테스트 확대**: Service 레이어 테스트 커버리지 향상
+7. **통합 테스트**: API 엔드포인트 E2E 테스트
+8. **성능 테스트**: JMeter, Gatling
+
+### 운영
+9. **모니터링**: Actuator + Prometheus + Grafana
+10. **로깅**: ELK Stack (Elasticsearch, Logstash, Kibana)
+11. **데이터베이스**: PostgreSQL/MySQL (운영 환경)
+12. **배포**: Docker + Kubernetes
+13. **CI/CD**: GitHub Actions, Jenkins
 
 ---
 
@@ -336,4 +445,6 @@ BUILD SUCCESSFUL in 10s
 
 프로젝트 관련 문의사항이 있으시면 GitHub Issues를 통해 연락 부탁드립니다.
 
-**프로젝트 완료 일자**: 2025-11-21
+**프로젝트 초기 완료**: 2025-11-21
+**코드 품질 개선**: 2025-11-23 (task-6, task-7, task-8)
+**최종 문서 업데이트**: 2025-11-23
