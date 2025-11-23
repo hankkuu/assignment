@@ -63,7 +63,7 @@ interface BusinessPlaceAdminRepository : JpaRepository<BusinessPlaceAdmin, Long>
             bpa.id,
             bpa.businessNumber,
             bpa.adminId,
-            a.name,
+            a.username,
             CAST(a.role AS string),
             bpa.grantedAt
         )
