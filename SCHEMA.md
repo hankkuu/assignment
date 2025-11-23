@@ -274,15 +274,25 @@ NOT_REQUESTED → COLLECTING → COLLECTED
 
 1. **수집 상태별 조회**: `idx_business_place_status`
    - Collector가 NOT_REQUESTED 상태 조회 시 사용
+   - Polling 방식으로 10초마다 조회
 
 2. **사업장별 거래 집계**: `idx_transaction_business_type`
    - 부가세 계산 시 `WHERE business_number = ? AND type = ?` 사용
+   - **N+1 쿼리 해결**: Type-safe DTO로 일괄 조회 (task-7)
+   - `sumAmountByBusinessNumbersAndType()` 메서드에서 사용
 
 3. **관리자 권한 조회**: `idx_bpa_admin`
    - MANAGER가 자신의 사업장 목록 조회 시 사용
 
 4. **거래 기간별 조회**: `idx_transaction_date`
    - 향후 기간별 집계 기능 추가 시 사용
+
+### N+1 쿼리 최적화 인덱스 (task-7)
+
+5. **복합 인덱스**: `idx_bpa_business_admin`
+   - UNIQUE constraint로도 사용
+   - `findDetailsByBusinessNumber()` JOIN 쿼리에서 활용
+   - 권한 조회 시 1 + N → 1 query로 최적화
 
 ---
 
@@ -291,6 +301,197 @@ NOT_REQUESTED → COLLECTING → COLLECTED
 전체 DDL은 다음 위치에서 확인 가능합니다:
 - **Schema**: `api-server/src/main/resources/schema.sql` (JPA auto-ddl 사용 시 자동 생성)
 - **Initial Data**: `api-server/src/main/resources/data.sql`
+
+---
+
+## 동시성 제어 및 락킹 전략
+
+### 현재 구조 동시성 분석
+
+#### 1. 수집 상태 변경 (collection_status)
+
+**시나리오**: 여러 요청이 동시에 같은 사업장에 대해 수집을 요청
+
+```kotlin
+// 현재 구현 (비 Thread-safe)
+fun requestCollection(businessNumber: String) {
+    val businessPlace = repository.findById(businessNumber)
+
+    // Race Condition 발생 가능 지점 ⚠️
+    if (businessPlace.collectionStatus == COLLECTING) {
+        throw ConflictException("이미 수집 중입니다")
+    }
+
+    businessPlace.collectionStatus = NOT_REQUESTED  // 상태 변경
+    repository.save(businessPlace)
+}
+```
+
+**문제점**:
+- Thread 1과 Thread 2가 동시에 `findById()` 호출
+- 둘 다 `NOT_REQUESTED` 상태 확인
+- 둘 다 수집 요청 승인 → 중복 수집 발생 가능
+
+**해결 방안**: **비관적 락 (Pessimistic Lock)** 권장
+
+```kotlin
+// ✅ 비관적 락 적용
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@Query("SELECT bp FROM BusinessPlace bp WHERE bp.businessNumber = :businessNumber")
+fun findByIdForUpdate(businessNumber: String): BusinessPlace?
+
+// 또는
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+fun findById(businessNumber: String): Optional<BusinessPlace>
+```
+
+**비관적 락 사용 이유**:
+1. **단순성**: 상태 전이 로직이 복잡하지 않음
+2. **즉시 실패**: 다른 트랜잭션이 이미 락을 획득했다면 즉시 실패 (409 Conflict 응답)
+3. **짧은 트랜잭션**: 상태 변경만 수행하므로 락 홀딩 시간이 짧음
+4. **충돌 빈도**: 수집 요청이 빈번하지 않음 (5분 소요)
+
+**SQL 쿼리**:
+```sql
+-- PESSIMISTIC_WRITE
+SELECT * FROM business_place WHERE business_number = ? FOR UPDATE
+```
+
+#### 2. 거래 내역 삽입 (transaction)
+
+**시나리오**: Collector가 Excel 데이터를 파싱하여 대량 삽입
+
+**현재 구현**:
+```kotlin
+// ExcelParser에서 파싱
+val transactions = parseExcelFile(filePath, businessNumber)
+
+// 기존 데이터 삭제 후 재삽입
+transactionRepository.deleteByBusinessNumber(businessNumber)
+transactionRepository.saveAll(transactions)
+```
+
+**동시성 이슈**:
+- Collector는 하나의 사업장당 한 번만 수집 (상태가 COLLECTING이면 재요청 불가)
+- 따라서 **락 불필요**
+
+**단, 주의사항**:
+- 향후 "재수집" 기능 추가 시 비관적 락 필요
+- 부가세 조회와 동시에 수집이 일어나면 부정확한 데이터 조회 가능
+  - 현재는 허용 (Eventual Consistency)
+  - 엄격한 정합성 필요 시 낙관적 락 고려
+
+#### 3. 권한 부여/삭제 (business_place_admin)
+
+**시나리오**: ADMIN이 동시에 같은 관리자에게 같은 사업장 권한 부여
+
+**현재 구현**:
+```kotlin
+fun grantPermission(businessNumber: String, adminId: Long) {
+    // 중복 체크
+    if (businessPlaceAdminRepository.existsByBusinessNumberAndAdminId(businessNumber, adminId)) {
+        throw ConflictException("이미 권한이 존재합니다")
+    }
+
+    // 권한 부여
+    val permission = BusinessPlaceAdmin(businessNumber, adminId)
+    repository.save(permission)
+}
+```
+
+**보호 메커니즘**:
+- **UNIQUE 제약 조건**: `UNIQUE (business_number, admin_id)`
+- 데이터베이스 레벨에서 중복 방지
+
+**동시성 이슈**:
+- Race Condition 발생 가능하지만, DB 제약 조건이 최종 방어선
+- 중복 삽입 시도 시 `DataIntegrityViolationException` 발생
+- 애플리케이션에서 예외 처리하여 사용자에게 안내
+
+**락 필요성**: **불필요** (DB 제약 조건으로 충분)
+
+### 락킹 전략 권장사항
+
+| 작업 | 락 유형 | 이유 | 우선순위 |
+|------|---------|------|---------|
+| **수집 상태 변경** | **비관적 락** | Race Condition 방지, 단순성 | **높음** ⚠️ |
+| 거래 내역 삽입 | 락 불필요 | 상태 검증으로 중복 수집 방지 | 낮음 |
+| 권한 부여/삭제 | 락 불필요 | UNIQUE 제약 조건 활용 | 낮음 |
+| 부가세 조회 | 락 불필요 | Read-only, Dirty Read 허용 | 낮음 |
+
+### 비관적 락 vs 낙관적 락 비교
+
+#### 비관적 락 (Pessimistic Lock) - **권장**
+
+**장점**:
+- 즉시 충돌 감지 및 실패 처리
+- 구현 간단 (`@Lock` 애노테이션)
+- Lost Update 완전 방지
+
+**단점**:
+- 락 대기로 인한 성능 저하 가능
+- 데드락 위험 (하지만 단일 테이블 락이므로 위험 낮음)
+
+**적용 코드**:
+```kotlin
+// BusinessPlaceRepository.kt
+@Lock(LockModeType.PESSIMISTIC_WRITE)
+@Query("SELECT bp FROM BusinessPlace bp WHERE bp.businessNumber = :businessNumber")
+fun findByIdForUpdate(@Param("businessNumber") businessNumber: String): BusinessPlace?
+
+// CollectionService.kt
+@Transactional
+fun requestCollection(businessNumber: String): CollectionStatus {
+    val businessPlace = repository.findByIdForUpdate(businessNumber)
+        ?: throw NotFoundException(...)
+
+    businessPlace.startCollection()  // 상태 전이 (검증 포함)
+    return businessPlace.collectionStatus
+}
+```
+
+#### 낙관적 락 (Optimistic Lock) - **미권장 (현재 구조)**
+
+**장점**:
+- 락 없이 동작, 높은 성능
+- 충돌이 드문 경우 효율적
+
+**단점**:
+- `@Version` 컬럼 추가 필요
+- 충돌 시 재시도 로직 필요
+- 사용자 경험 저하 (충돌 시 실패 후 재시도 요청)
+
+**적용 방법** (참고용):
+```kotlin
+@Entity
+class BusinessPlace(
+    @Id
+    val businessNumber: String,
+
+    @Version  // 낙관적 락용 버전 컬럼
+    var version: Long = 0,
+
+    // ...
+)
+
+// 충돌 시 OptimisticLockException 발생
+// 애플리케이션에서 catch하여 재시도 또는 에러 응답
+```
+
+**미권장 이유**:
+- 수집 요청은 5분 소요되므로 "재시도"가 부적절
+- 사용자는 즉시 실패를 알아야 함
+- 버전 컬럼 추가로 스키마 복잡도 증가
+
+### 구현 우선순위
+
+**현재 필수**:
+1. ✅ **비관적 락 적용**: `BusinessPlace.collection_status` 변경 시
+
+**향후 고려**:
+2. 재수집 기능 추가 시 거래 내역 락킹
+3. 대규모 트래픽 대비 낙관적 락 전환 검토
+4. Read Replica 도입 시 Replication Lag 처리
 
 ---
 
