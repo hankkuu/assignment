@@ -9,6 +9,7 @@ import com.kcd.tax.infrastructure.domain.BusinessPlaceAdmin
 import com.kcd.tax.infrastructure.helper.BusinessPlaceRepositoryHelper
 import com.kcd.tax.infrastructure.repository.AdminRepository
 import com.kcd.tax.infrastructure.repository.BusinessPlaceAdminRepository
+import com.kcd.tax.infrastructure.repository.BusinessPlaceAdminDetail
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -16,6 +17,8 @@ import io.mockk.slot
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.assertThrows
+import java.time.LocalDateTime
+import java.util.Optional
 import java.util.*
 
 class BusinessPlaceServiceTest {
@@ -160,7 +163,10 @@ class BusinessPlaceServiceTest {
         every { businessPlaceHelper.findByIdOrThrow(businessNumber) } returns businessPlace
         every { adminRepository.findById(adminId) } returns Optional.of(admin)
         every { businessPlaceAdminRepository.existsByBusinessNumberAndAdminId(businessNumber, adminId) } returns false
-        every { businessPlaceAdminRepository.save(capture(slot)) } answers { slot.captured }
+        every { businessPlaceAdminRepository.save(capture(slot)) } answers {
+            val captured = slot.captured
+            BusinessPlaceAdmin(1L, captured.businessNumber, captured.adminId)
+        }
 
         // When
         val result = service.grantPermission(businessNumber, adminId)
@@ -237,15 +243,13 @@ class BusinessPlaceServiceTest {
         // Given
         val businessNumber = "1234567890"
         val businessPlace = BusinessPlace(businessNumber, "테스트")
-        val admin1 = Admin(2L, "manager1", AdminRole.MANAGER)
-        val admin2 = Admin(3L, "manager2", AdminRole.MANAGER)
-        val permission1 = BusinessPlaceAdmin(null, businessNumber, 2L)
-        val permission2 = BusinessPlaceAdmin(null, businessNumber, 3L)
+        val details = listOf(
+            BusinessPlaceAdminDetail(1L, businessNumber, 2L, "manager1", "MANAGER", LocalDateTime.now()),
+            BusinessPlaceAdminDetail(2L, businessNumber, 3L, "manager2", "MANAGER", LocalDateTime.now())
+        )
 
         every { businessPlaceHelper.findByIdOrThrow(businessNumber) } returns businessPlace
-        every { businessPlaceAdminRepository.findByBusinessNumber(businessNumber) } returns listOf(permission1, permission2)
-        every { adminRepository.findById(2L) } returns Optional.of(admin1)
-        every { adminRepository.findById(3L) } returns Optional.of(admin2)
+        every { businessPlaceAdminRepository.findDetailsByBusinessNumber(businessNumber) } returns details
 
         // When
         val results = service.getPermissionsByBusinessNumber(businessNumber)
@@ -258,6 +262,6 @@ class BusinessPlaceServiceTest {
         assertEquals(3L, results[1].adminId)
 
         verify { businessPlaceHelper.findByIdOrThrow(businessNumber) }
-        verify { businessPlaceAdminRepository.findByBusinessNumber(businessNumber) }
+        verify { businessPlaceAdminRepository.findDetailsByBusinessNumber(businessNumber) }
     }
 }

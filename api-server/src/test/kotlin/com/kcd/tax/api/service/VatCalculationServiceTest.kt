@@ -9,6 +9,7 @@ import com.kcd.tax.infrastructure.helper.BusinessPlaceRepositoryHelper
 import com.kcd.tax.infrastructure.repository.BusinessPlaceAdminRepository
 import com.kcd.tax.infrastructure.repository.TransactionRepository
 import com.kcd.tax.infrastructure.util.VatCalculator
+import com.kcd.tax.infrastructure.repository.TransactionSumResult
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -86,12 +87,12 @@ class VatCalculationServiceTest {
         // N+1 Query 방지를 위한 bulk 쿼리 mock
         every { businessPlaceHelper.findAllByIds(businessNumbers) } returns listOf(businessPlace1, businessPlace2)
         every { transactionRepository.sumAmountByBusinessNumbersAndType(businessNumbers, TransactionType.SALES) } returns listOf(
-            arrayOf("1234567890", BigDecimal.ZERO),
-            arrayOf("0987654321", BigDecimal.ZERO)
+            TransactionSumResult("1234567890", BigDecimal.ZERO),
+            TransactionSumResult("0987654321", BigDecimal.ZERO)
         )
         every { transactionRepository.sumAmountByBusinessNumbersAndType(businessNumbers, TransactionType.PURCHASE) } returns listOf(
-            arrayOf("1234567890", BigDecimal.ZERO),
-            arrayOf("0987654321", BigDecimal.ZERO)
+            TransactionSumResult("1234567890", BigDecimal.ZERO),
+            TransactionSumResult("0987654321", BigDecimal.ZERO)
         )
         every { vatCalculator.calculate(any(), any()) } returns 0L
 

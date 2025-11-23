@@ -1,5 +1,3 @@
-package com.kcd.tax.api.controller
-
 import com.kcd.tax.api.service.VatCalculationService
 import com.kcd.tax.common.enums.AdminRole
 import com.ninjasquad.springmockk.MockkBean
@@ -9,6 +7,8 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.data.domain.PageImpl
+import org.springframework.data.domain.Pageable
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
 import org.springframework.test.web.servlet.result.MockMvcResultMatchers.*
@@ -31,14 +31,13 @@ class VatControllerTest {
     fun `ADMIN은 모든 사업장의 부가세를 조회할 수 있다`() {
         // Given
         val adminId = 1L
-        val authorizedBusinessNumbers = listOf("1234567890", "0987654321")
         val vatResults = listOf(
             VatCalculationService.VatResult("1234567890", "테스트1", BigDecimal("10000000"), BigDecimal("5000000"), 454550L),
             VatCalculationService.VatResult("0987654321", "테스트2", BigDecimal("20000000"), BigDecimal("10000000"), 909090L)
         )
+        val page = PageImpl(vatResults)
 
-        every { vatCalculationService.getAuthorizedBusinessNumbers(adminId, AdminRole.ADMIN) } returns authorizedBusinessNumbers
-        every { vatCalculationService.calculateVat(authorizedBusinessNumbers) } returns vatResults
+        every { vatCalculationService.calculateVatWithPaging(adminId, AdminRole.ADMIN, null, any()) } returns page
 
         // When & Then
         mockMvc.perform(
@@ -52,8 +51,7 @@ class VatControllerTest {
             .andExpect(jsonPath("$.content[1].businessNumber").value("0987654321"))
             .andExpect(jsonPath("$.content[1].vatAmount").value(909090))
 
-        verify { vatCalculationService.getAuthorizedBusinessNumbers(adminId, AdminRole.ADMIN) }
-        verify { vatCalculationService.calculateVat(authorizedBusinessNumbers) }
+        verify { vatCalculationService.calculateVatWithPaging(adminId, AdminRole.ADMIN, null, any()) }
     }
 
     @Test
@@ -64,9 +62,9 @@ class VatControllerTest {
         val vatResult = VatCalculationService.VatResult(
             businessNumber, "테스트 주식회사", BigDecimal("10000000"), BigDecimal("5000000"), 454550L
         )
+        val page = PageImpl(listOf(vatResult))
 
-        every { vatCalculationService.checkPermission(businessNumber, adminId, AdminRole.ADMIN) } returns Unit
-        every { vatCalculationService.calculateVat(listOf(businessNumber)) } returns listOf(vatResult)
+        every { vatCalculationService.calculateVatWithPaging(adminId, AdminRole.ADMIN, businessNumber, any()) } returns page
 
         // When & Then
         mockMvc.perform(
@@ -79,21 +77,19 @@ class VatControllerTest {
             .andExpect(jsonPath("$.content[0].businessNumber").value(businessNumber))
             .andExpect(jsonPath("$.content[0].vatAmount").value(454550))
 
-        verify { vatCalculationService.checkPermission(businessNumber, adminId, AdminRole.ADMIN) }
-        verify { vatCalculationService.calculateVat(listOf(businessNumber)) }
+        verify { vatCalculationService.calculateVatWithPaging(adminId, AdminRole.ADMIN, businessNumber, any()) }
     }
 
     @Test
     fun `MANAGER는 할당된 사업장만 조회할 수 있다`() {
         // Given
         val adminId = 2L
-        val authorizedBusinessNumbers = listOf("1234567890")
         val vatResults = listOf(
             VatCalculationService.VatResult("1234567890", "테스트", BigDecimal("10000000"), BigDecimal("5000000"), 454550L)
         )
+        val page = PageImpl(vatResults)
 
-        every { vatCalculationService.getAuthorizedBusinessNumbers(adminId, AdminRole.MANAGER) } returns authorizedBusinessNumbers
-        every { vatCalculationService.calculateVat(authorizedBusinessNumbers) } returns vatResults
+        every { vatCalculationService.calculateVatWithPaging(adminId, AdminRole.MANAGER, null, any()) } returns page
 
         // When & Then
         mockMvc.perform(
@@ -105,8 +101,7 @@ class VatControllerTest {
             .andExpect(jsonPath("$.content[0].businessNumber").value("1234567890"))
             .andExpect(jsonPath("$.content[0].vatAmount").value(454550))
 
-        verify { vatCalculationService.getAuthorizedBusinessNumbers(adminId, AdminRole.MANAGER) }
-        verify { vatCalculationService.calculateVat(authorizedBusinessNumbers) }
+        verify { vatCalculationService.calculateVatWithPaging(adminId, AdminRole.MANAGER, null, any()) }
     }
 
     // Edge Cases and Validation Tests
@@ -146,7 +141,7 @@ class VatControllerTest {
         val adminId = 2L
         val businessNumber = "9999999999"
 
-        every { vatCalculationService.checkPermission(businessNumber, adminId, AdminRole.MANAGER) } throws com.kcd.tax.common.exception.ForbiddenException(
+        every { vatCalculationService.calculateVatWithPaging(adminId, AdminRole.MANAGER, businessNumber, any()) } throws com.kcd.tax.common.exception.ForbiddenException(
             "해당 사업장에 대한 접근 권한이 없습니다"
         )
 
@@ -166,8 +161,7 @@ class VatControllerTest {
         val adminId = 1L
         val businessNumber = "9999999999"
 
-        every { vatCalculationService.checkPermission(businessNumber, adminId, AdminRole.ADMIN) } returns Unit
-        every { vatCalculationService.calculateVat(listOf(businessNumber)) } throws com.kcd.tax.common.exception.NotFoundException(
+        every { vatCalculationService.calculateVatWithPaging(adminId, AdminRole.ADMIN, businessNumber, any()) } throws com.kcd.tax.common.exception.NotFoundException(
             com.kcd.tax.common.exception.ErrorCode.BUSINESS_NOT_FOUND,
             "사업장을 찾을 수 없습니다"
         )
@@ -210,10 +204,9 @@ class VatControllerTest {
     fun `빈 결과를 반환할 수 있다`() {
         // Given
         val adminId = 2L
-        val authorizedBusinessNumbers = emptyList<String>()
+        val page = PageImpl(emptyList<VatCalculationService.VatResult>())
 
-        every { vatCalculationService.getAuthorizedBusinessNumbers(adminId, AdminRole.MANAGER) } returns authorizedBusinessNumbers
-        every { vatCalculationService.calculateVat(authorizedBusinessNumbers) } returns emptyList()
+        every { vatCalculationService.calculateVatWithPaging(adminId, AdminRole.MANAGER, null, any()) } returns page
 
         // When & Then
         mockMvc.perform(
@@ -234,9 +227,9 @@ class VatControllerTest {
         val vatResult = VatCalculationService.VatResult(
             businessNumber, "테스트", BigDecimal("1000000"), BigDecimal("2000000"), -90910L
         )
+        val page = PageImpl(listOf(vatResult))
 
-        every { vatCalculationService.checkPermission(businessNumber, adminId, AdminRole.ADMIN) } returns Unit
-        every { vatCalculationService.calculateVat(listOf(businessNumber)) } returns listOf(vatResult)
+        every { vatCalculationService.calculateVatWithPaging(adminId, AdminRole.ADMIN, businessNumber, any()) } returns page
 
         // When & Then
         mockMvc.perform(
@@ -257,9 +250,9 @@ class VatControllerTest {
         val vatResult = VatCalculationService.VatResult(
             businessNumber, "테스트", BigDecimal("1000000"), BigDecimal("1000000"), 0L
         )
+        val page = PageImpl(listOf(vatResult))
 
-        every { vatCalculationService.checkPermission(businessNumber, adminId, AdminRole.ADMIN) } returns Unit
-        every { vatCalculationService.calculateVat(listOf(businessNumber)) } returns listOf(vatResult)
+        every { vatCalculationService.calculateVatWithPaging(adminId, AdminRole.ADMIN, businessNumber, any()) } returns page
 
         // When & Then
         mockMvc.perform(
@@ -276,19 +269,14 @@ class VatControllerTest {
     fun `여러 사업장의 부가세를 한번에 조회할 수 있다`() {
         // Given
         val adminId = 1L
-        val authorizedBusinessNumbers = listOf("1111111111", "2222222222", "3333333333")
-        val vatResults = authorizedBusinessNumbers.mapIndexed { index, businessNumber ->
-            VatCalculationService.VatResult(
-                businessNumber,
-                "테스트${index + 1}",
-                BigDecimal((index + 1) * 1000000),
-                BigDecimal((index + 1) * 500000),
-                (index + 1) * 45450L
-            )
-        }
+        val vatResults = listOf(
+            VatCalculationService.VatResult("1111111111", "테스트1", BigDecimal.ZERO, BigDecimal.ZERO, 0L),
+            VatCalculationService.VatResult("2222222222", "테스트2", BigDecimal.ZERO, BigDecimal.ZERO, 0L),
+            VatCalculationService.VatResult("3333333333", "테스트3", BigDecimal.ZERO, BigDecimal.ZERO, 0L)
+        )
+        val page = PageImpl(vatResults)
 
-        every { vatCalculationService.getAuthorizedBusinessNumbers(adminId, AdminRole.ADMIN) } returns authorizedBusinessNumbers
-        every { vatCalculationService.calculateVat(authorizedBusinessNumbers) } returns vatResults
+        every { vatCalculationService.calculateVatWithPaging(adminId, AdminRole.ADMIN, null, any()) } returns page
 
         // When & Then
         mockMvc.perform(
@@ -304,24 +292,17 @@ class VatControllerTest {
     }
 
     @Test
-    fun `사업자번호가 잘못된 형식이면 권한 체크에서 실패한다`() {
+    fun `페이지 크기를 초과하면 400 에러가 발생한다`() {
         // Given
-        val adminId = 1L
-        val invalidBusinessNumber = "invalid"
-
-        every { vatCalculationService.checkPermission(invalidBusinessNumber, adminId, AdminRole.ADMIN) } returns Unit
-        every { vatCalculationService.calculateVat(listOf(invalidBusinessNumber)) } throws com.kcd.tax.common.exception.NotFoundException(
-            com.kcd.tax.common.exception.ErrorCode.BUSINESS_NOT_FOUND,
-            "사업장을 찾을 수 없습니다"
-        )
+        val largeSize = 200
 
         // When & Then
         mockMvc.perform(
             get("/api/v1/vat")
-                .param("businessNumber", invalidBusinessNumber)
-                .header("X-Admin-Id", adminId.toString())
+                .param("size", largeSize.toString())
+                .header("X-Admin-Id", "1")
                 .header("X-Admin-Role", "ADMIN")
         )
-            .andExpect(status().isNotFound)
+            .andExpect(status().isBadRequest)
     }
 }
