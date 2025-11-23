@@ -99,12 +99,14 @@ INSERT INTO admin (id, username, role, created_at) VALUES
 | **business_number** | VARCHAR(10) | PK | 사업자번호 (10자리) |
 | name | VARCHAR(100) | NOT NULL | 사업장명 |
 | collection_status | VARCHAR(20) | NOT NULL | 수집 상태 (NOT_REQUESTED/COLLECTING/COLLECTED) |
+| collection_requested_at | TIMESTAMP | NULL | 수집 요청 시각 (요청 후 Collector 폴링 대상) |
 | created_at | TIMESTAMP | NOT NULL | 생성일시 |
 | updated_at | TIMESTAMP | NOT NULL | 수정일시 |
 
 **Indexes**:
 - `PRIMARY KEY (business_number)`
 - `INDEX idx_business_place_status (collection_status)` - 수집 상태별 조회 성능 향상
+- 필요 시 `collection_requested_at`에 보조 인덱스 추가 가능 (요청 대기 조회 최적화)
 
 **Constraints**:
 - `business_number`: 정확히 10자리 숫자
@@ -222,14 +224,14 @@ INSERT INTO business_place_admin (id, business_number, admin_id, granted_at) VAL
 
 **상태 전이 규칙**:
 ```
-NOT_REQUESTED → COLLECTING → COLLECTED
-      ↓                ↓
-      ←───────────────←─────── (실패 시 복원)
+NOT_REQUESTED --(request sets requested_at)--> COLLECTING → COLLECTED
+      ↓                            ↓
+      ←───────────────(reset)──────←─────── (실패 시 복원, requested_at 초기화)
 ```
 
 **구현**:
 - JPA: `@Enumerated(EnumType.STRING)`
-- 도메인 메서드: `startCollection()`, `completeCollection()`, `resetCollection()`
+- 도메인 메서드: `startCollection()`(요청 시각 필요), `completeCollection()`, `resetCollection()` (요청 시각 초기화)
 - 상태 전이 검증: `require` 문으로 불변식 보호
 
 ### 4. 부가세 계산 최적화
@@ -308,48 +310,39 @@ NOT_REQUESTED → COLLECTING → COLLECTED
 
 ### 현재 구조 동시성 분석
 
-#### 1. 수집 상태 변경 (collection_status)
+#### 1. 수집 상태 변경 (collection_status + collection_requested_at)
 
 **시나리오**: 여러 요청이 동시에 같은 사업장에 대해 수집을 요청
 
 ```kotlin
-// 현재 구현 (비 Thread-safe)
-fun requestCollection(businessNumber: String) {
+@Transactional
+fun requestCollection(businessNumber: String): CollectionStatus {
     val businessPlace = repository.findById(businessNumber)
+        .orElseThrow { NotFoundException(...) }
 
-    // Race Condition 발생 가능 지점 ⚠️
-    if (businessPlace.collectionStatus == COLLECTING) {
-        throw ConflictException("이미 수집 중입니다")
-    }
+    if (businessPlace.collectionStatus != NOT_REQUESTED) throw ConflictException(...)
+    if (businessPlace.collectionRequestedAt != null) throw ConflictException(...) // 이미 대기
 
-    businessPlace.collectionStatus = NOT_REQUESTED  // 상태 변경
+    businessPlace.collectionRequestedAt = LocalDateTime.now()
     repository.save(businessPlace)
+    return businessPlace.collectionStatus
 }
 ```
 
-**문제점**:
-- Thread 1과 Thread 2가 동시에 `findById()` 호출
-- 둘 다 `NOT_REQUESTED` 상태 확인
-- 둘 다 수집 요청 승인 → 중복 수집 발생 가능
-
-**해결 방안**: **비관적 락 (Pessimistic Lock)** 권장
+**폴링 조건**: Collector는 `collection_status = NOT_REQUESTED` **and** `collection_requested_at IS NOT NULL` 인 건만 처리
 
 ```kotlin
-// ✅ 비관적 락 적용
-@Lock(LockModeType.PESSIMISTIC_WRITE)
-@Query("SELECT bp FROM BusinessPlace bp WHERE bp.businessNumber = :businessNumber")
-fun findByIdForUpdate(businessNumber: String): BusinessPlace?
-
-// 또는
-@Lock(LockModeType.PESSIMISTIC_WRITE)
-fun findById(businessNumber: String): Optional<BusinessPlace>
+// Collector start (동시성 제어)
+@Transactional
+fun start(businessNumber: String) {
+    val bp = repository.findByBusinessNumberForUpdate(businessNumber)
+        ?: throw IllegalStateException()
+    bp.startCollection() // requestedAt 필요, NOT_REQUESTED만 허용
+    repository.save(bp)
+}
 ```
 
-**비관적 락 사용 이유**:
-1. **단순성**: 상태 전이 로직이 복잡하지 않음
-2. **즉시 실패**: 다른 트랜잭션이 이미 락을 획득했다면 즉시 실패 (409 Conflict 응답)
-3. **짧은 트랜잭션**: 상태 변경만 수행하므로 락 홀딩 시간이 짧음
-4. **충돌 빈도**: 수집 요청이 빈번하지 않음 (5분 소요)
+**락 전략**: BusinessPlaceRepository에 `findByBusinessNumberForUpdate` (PESSIMISTIC_WRITE) 적용하여 중복 시작 방지
 
 **SQL 쿼리**:
 ```sql
