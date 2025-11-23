@@ -19,9 +19,9 @@ The project follows a clean, decoupled 4-layer multi-module architecture:
 
 - `tax/` (Root)
     - `common/`: A pure Kotlin module containing core domain enums and custom exceptions. It has no framework dependencies.
-    - `infrastructure/`: Handles data persistence and external interactions. It includes JPA entities, Spring Data repositories, and utilities like an Excel parser.
+    - `infrastructure/`: Handles data persistence and external interactions. It includes JPA entities and Spring Data repositories.
     - `api-server/`: The main public-facing REST API server. It handles user requests, authentication, and business logic.
-    - `collector/`: A background worker application that polls the database for new collection tasks, parses the data file, and updates the database.
+    - `collector/`: A background worker application that polls the database for new collection tasks, parses data, and manages the collection lifecycle. It contains the `ExcelParser`.
 
 ### Tech Stack
 
@@ -107,10 +107,11 @@ Execute all unit and integration tests across all modules.
 ### Asynchronous Data Flow (DB Polling)
 
 1.  A `POST /api/v1/collections` request is sent to the `api-server`.
-2.  The server validates the request and ensures the business is not already being collected. The status in the DB remains `NOT_REQUESTED`.
-3.  The `collector` application polls the database every 10 seconds for records with `NOT_REQUESTED` status.
-4.  Upon finding a task, the `collector` updates the status to `COLLECTING`, spends ~5 minutes parsing the `sample.xlsx` file, and persists the transaction data.
-5.  Finally, the `collector` updates the status to `COLLECTED`.
+2.  The `collector` application polls the database every 10 seconds for `NOT_REQUESTED` jobs.
+3.  The `collector` uses a `CollectionProcessor` service to manage the collection lifecycle with separate, short-lived transactions.
+4.  It first acquires a pessimistic write lock on the `BusinessPlace` row and updates the status to `COLLECTING`.
+5.  It then performs the long-running task (5-minute simulated data parsing) **outside** of a transaction.
+6.  Finally, in a new transaction, it saves the parsed data and updates the status to `COLLECTED`.
 
 ### VAT Calculation Logic
 
@@ -128,6 +129,7 @@ The `AUTO_SERVER=TRUE` option is critical as it allows both the `api-server` and
 ### Key Design Decisions
 
 - **Multi-Module Architecture**: The project is split into four modules (`common`, `infrastructure`, `api-server`, `collector`) to enforce separation of concerns, improve testability, and allow for independent scaling and deployment.
-- **Database Polling**: Chosen for its simplicity and to avoid external message queue dependencies (like Kafka/RabbitMQ) for this prototype. The 10-second polling delay is considered acceptable given the 5-minute collection simulation.
-- **Natural Primary Key**: The `business_place` table uses the 10-digit business number as its primary key. This makes queries more intuitive and reinforces the domain model, at the minor cost of using a `VARCHAR` PK.
-- **Entity State Logic**: State transitions (e.g., for `CollectionStatus`) are handled by methods within the JPA entity itself (e.g., `businessPlace.startCollection()`). This encapsulates business rules and prevents invalid state changes.
+- **Database Polling**: Chosen for its simplicity and to avoid external message queue dependencies (like Kafka/RabbitMQ) for this prototype.
+- **Natural Primary Key**: The `business_place` table uses the 10-digit business number as its primary key.
+- **Entity State Logic**: State transitions are handled by methods within the JPA entity itself.
+- **Pessimistic Locking**: Used in the `CollectionProcessor` to prevent race conditions during data collection without relying on optimistic locking.
